@@ -1,0 +1,6 @@
+.cache/
+videos/
+__pycache__/
+*.pyc
+.idea/
+screenshot_*.png
