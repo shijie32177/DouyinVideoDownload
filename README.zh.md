@@ -1,4 +1,4 @@
-# <img src="douyin_icon.png" width="32" height="32" style="vertical-align:middle"/> 抖音视频下载工具
+# <img src="assets/douyin_icon.png" width="32" height="32" style="vertical-align:middle"/> 抖音视频下载工具
 
 > 基于 PyQt5 + DrissionPage 的桌面客户端，驱动本地 Chrome 浏览器抓取抖音视频，无水印下载。
 
@@ -56,16 +56,16 @@
 ## 📸 界面截图
 
 ### 我的收藏 — 视频卡片网格 + 收藏夹搜索
-![我的收藏](Screenshot01.png)
+![我的收藏](assets/Screenshot01.png)
 
 ### 发现用户 — 用户信息 + 视频列表
-![发现用户](Screenshot02.png)
+![发现用户](assets/Screenshot02.png)
 
 ### 下载中心 — 多来源任务管理
-![下载中心](Screenshot03.png)
+![下载中心](assets/Screenshot03.png)
 
 ### 解析分享链接
-![解析](Screenshot04.png)
+![解析](assets/Screenshot04.png)
 
 ---
 
@@ -150,7 +150,7 @@ requests 多线程下载（自动去除水印参数）
 ├── app.py              # 主程序
 ├── analyze_dom.py      # 调试工具：分析收藏夹页面 DOM 滚动容器
 ├── requirements.txt    # 依赖列表
-├── Screenshot*.png     # 界面截图
+├── assets/             # 图标与截图
 └── videos/             # 默认下载目录
 ```
 

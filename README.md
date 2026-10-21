@@ -1,4 +1,4 @@
-# <img src="douyin_icon.png" width="32" height="32" style="vertical-align:middle"/> Douyin Video Downloader
+# <img src="assets/douyin_icon.png" width="32" height="32" style="vertical-align:middle"/> Douyin Video Downloader
 
 > A PyQt5 + DrissionPage desktop client that drives your local Chrome browser to capture Douyin (TikTok China) videos and download them **watermark-free**.
 
@@ -58,16 +58,16 @@
 ## 📸 Screenshots
 
 ### My Favorites — Video Grid + Folder Search
-![My Favorites](Screenshot01.png)
+![My Favorites](assets/Screenshot01.png)
 
 ### Discover Users — Profile Info + Video List
-![Discover Users](Screenshot02.png)
+![Discover Users](assets/Screenshot02.png)
 
 ### Download Center — Multi-Source Task Management
-![Download Center](Screenshot03.png)
+![Download Center](assets/Screenshot03.png)
 
 ### Parse Share Links
-![Parse](Screenshot04.png)
+![Parse](assets/Screenshot04.png)
 
 ---
 
@@ -156,7 +156,7 @@ requests multi-threaded download  (watermark parameter stripped automatically)
 ├── app.py              # Main application
 ├── analyze_dom.py      # Debug tool: inspect scroll containers on the favorites page
 ├── requirements.txt    # Python dependencies
-├── Screenshot*.png     # UI screenshots
+├── assets/             # Icons and screenshots
 └── videos/             # Default download directory
 ```
 
