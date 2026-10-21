@@ -172,27 +172,17 @@ requests multi-threaded download  (watermark parameter stripped automatically)
 
 ## 📜 Changelog
 
-### v1.2.0 (current)
-- Switched core engine to DrissionPage — intercepts Chrome network requests to obtain real, watermark-free download URLs
-- Added **Discover** tab: look up any user and download their videos
-- Added **Parse** tab: one-paste share-link parsing with persistent history
-- Favorites: drag-to-reorder and real-time keyword search with auto-complete
+### v1.0.0
+- DrissionPage engine — intercepts Chrome network requests to obtain real, watermark-free download URLs
+- **My Favorites**: browse by folder with thumbnail grid, drag-to-reorder, real-time keyword search with auto-complete, incremental sync and cache clear
+- **My Posts / My Likes**: sync all published or liked videos after login, configurable sync limits
+- **Discover** tab: look up any user by UID or profile URL and batch download their videos
+- **Parse** tab: one-paste share-link parsing with persistent history
+- **Download Center**: unified task manager across all sources, title search filter, resume-on-pause, custom download directory
 - Global log panel: collapsible/expandable with a single click; auto-hides on tab switch
-- Download Center: title search filter
 - 4 built-in themes (Dark / Midnight Blue / Minimal Green / Warm Sand) with live preview
 - Cookie persistence — no re-login required after restart
 - Settings panel: configurable concurrency and sync limits
-
-### v1.1.0
-- Added user profile video download
-- Added user likes video download
-- Accept both UID and URL as input
-
-### v1.0.0
-- Basic favorites scraping and download
-- Task management (pause / resume / cancel)
-- Dark theme UI
-- Custom download directory
 
 ---
 
