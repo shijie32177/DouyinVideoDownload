@@ -1,94 +1,96 @@
-# <img src="douyin_icon.png" width="32" height="32" style="vertical-align:middle"/> 抖音视频下载工具
+# <img src="douyin_icon.png" width="32" height="32" style="vertical-align:middle"/> Douyin Video Downloader
 
-> 基于 PyQt5 + DrissionPage 的桌面客户端，驱动本地 Chrome 浏览器抓取抖音视频，无水印下载。
+> A PyQt5 + DrissionPage desktop client that drives your local Chrome browser to capture Douyin (TikTok China) videos and download them **watermark-free**.
 
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue?logo=python&logoColor=white)
 ![PyQt5](https://img.shields.io/badge/PyQt5-5.15%2B-green?logo=qt&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 ![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)
 
-[English](README.en.md)
+[中文文档](README.zh.md)
 
 ---
 
-## ✨ 功能概览
+## ✨ Features
 
-### 📁 我的收藏
-- 按收藏夹分类浏览，支持缩略图预览 + 视频时长显示
-- 收藏夹列表支持**拖拽排序**，自由调整显示顺序
-- 顶部**搜索框**实时过滤收藏夹（含自动补全）
-- 一键同步列表 / 同步视频 / 下载当前夹，支持增量刷新
-- 支持「清空缓存」重新拉取，批量选择后一键下载
+### 📁 My Favorites
+- Browse collections by folder with thumbnail previews and video duration labels
+- **Drag-and-drop** to reorder your favorite folders freely
+- Real-time **search bar** with auto-complete to filter folders instantly
+- One-click sync: refresh folder list / fetch video metadata / download entire folder
+- Clear local cache to force a full re-fetch; multi-select and batch download
 
-### 🎬 我的作品 / 我的喜欢
-- 登录后自动同步自己发布或点赞的全部视频
-- 设置面板可配置各自同步上限（0 = 不限）
+### 🎬 My Posts / My Likes
+- Automatically syncs all videos you have published or liked after login
+- Configurable sync limits per category (0 = unlimited) in the Settings panel
 
-### 🔍 发现用户
-- 输入 UID 或主页链接，自动解析用户昵称、粉丝数、作品数
-- 左侧用户列表持久化，下次启动免重搜
-- 支持查看作品列表，全选 / 批量下载
+### 🔍 Discover Users
+- Enter a UID (`MS4wLjABAAAAxxx`) or profile URL to look up any user
+- Displays nickname, follower count, and total video count
+- User list is persisted locally — no need to re-search on next launch
+- Select all / batch download from any user's video grid
 
-### 🔗 解析分享链接
-- 粘贴抖音 App 分享文本（含 `v.douyin.com` 短链）自动提取直链
-- 保留**历史解析记录**，支持一键预览或加入下载队列
-- 支持清空列表
+### 🔗 Parse Share Links
+- Paste Douyin App share text (containing a `v.douyin.com` short link) to extract the direct download URL automatically
+- **History** of parsed links is retained across sessions; one-click preview or add to queue
+- Clear list at any time
 
-### ⬇️ 下载中心
-- 统一管理所有来源的下载任务（收藏 / 作品 / 喜欢 / 发现 / 解析）
-- 下载列表支持**标题搜索**过滤，显示作者、进度、文件大小、来源、添加时间
-- 全局控制：全部开始 / 全部暂停 / 清空 / 删除选中
-- 单条操作：下载 / 暂停 / 继续 / 取消，支持**断点续传**
-- 自定义下载目录，点击「打开」直接定位到文件夹
+### ⬇️ Download Center
+- Unified task manager for all sources: Favorites / Posts / Likes / Discover / Parse
+- **Title search** bar to filter the task list instantly
+- Columns: title, author, progress, file size, source, date added
+- Global controls: Start All / Pause All / Clear / Delete Selected
+- Per-task controls: Download / Pause / Resume / Cancel with **resume-on-pause** support
+- Custom download directory; click "Open" to reveal the folder in your file manager
 
-### 📋 全局日志
-- 底部日志面板实时显示抓取进度和错误信息
-- 点击分隔条上的箭头按钮可**一键折叠 / 展开**日志面板，不占用内容区域
-- 切换标签页时自动收起日志
+### 📋 Global Log Panel
+- Real-time log at the bottom of the window shows fetch progress and errors
+- Click the **collapse / expand** arrow on the splitter handle to hide the log without losing content space
+- Log auto-collapses when switching between tabs
 
-### ⚙️ 设置
-- 界面主题：**深色（默认）/ 午夜蓝 / 翠绿极简 / 暖沙浅色**，切换即时预览
-- 最大同时下载数（1–10，建议 3）
-- 我的作品 / 我的喜欢同步上限
-
----
-
-## 📸 界面截图
-
-### 我的收藏 — 视频卡片网格 + 收藏夹搜索
-![我的收藏](Screenshot01.png)
-
-### 发现用户 — 用户信息 + 视频列表
-![发现用户](Screenshot02.png)
-
-### 下载中心 — 多来源任务管理
-![下载中心](Screenshot03.png)
-
-### 解析分享链接
-![解析](Screenshot04.png)
+### ⚙️ Settings
+- **Themes**: Dark (default) / Midnight Blue / Minimal Green / Warm Sand — live preview on selection
+- Maximum concurrent downloads (1–10, recommended: 3)
+- Sync limits for My Posts and My Likes
 
 ---
 
-## 🚀 快速开始
+## 📸 Screenshots
 
-### 环境要求
+### My Favorites — Video Grid + Folder Search
+![My Favorites](Screenshot01.png)
+
+### Discover Users — Profile Info + Video List
+![Discover Users](Screenshot02.png)
+
+### Download Center — Multi-Source Task Management
+![Download Center](Screenshot03.png)
+
+### Parse Share Links
+![Parse](Screenshot04.png)
+
+---
+
+## 🚀 Quick Start
+
+### Requirements
 
 - Python 3.8+
-- Google Chrome（版本与 DrissionPage 匹配）
+- Google Chrome (version compatible with DrissionPage)
 
-### 安装依赖
+### Install Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-或手动安装：
+Or manually:
 
 ```bash
 pip install PyQt5 PyQtWebEngine requests DrissionPage
 ```
 
-### 运行
+### Run
 
 ```bash
 python app.py
@@ -96,104 +98,108 @@ python app.py
 
 ---
 
-## 📖 使用说明
+## 📖 Usage Guide
 
-### 1. 首次登录
+### 1. First-time Login
 
-启动后切换到 **「我的」** 标签页，点击「打开抖音」，在内嵌浏览器中完成登录。登录成功后点击「更新 Cookie」，Cookie 自动持久化保存，下次启动无需重新登录。
+Launch the app and switch to the **"My"** tab. Click **"Open Douyin"** to log in via the embedded browser. After a successful login, click **"Update Cookie"** — your session is saved locally and will be reused on the next launch.
 
-### 2. 同步收藏夹
+### 2. Syncing Favorites
 
-1. 点击「同步列表」拉取收藏夹目录
-2. 点击左侧任意收藏夹，右侧显示视频网格
-3. 点击「同步视频」抓取当前夹的全部视频信息
-4. 勾选视频后点击「批量下载」，或点击单个视频卡片上的「下载」按钮
+1. Click **"Sync List"** to fetch your folder directory
+2. Click any folder on the left — the video grid appears on the right
+3. Click **"Sync Videos"** to fetch all video metadata for that folder
+4. Check the videos you want, then click **"Batch Download"**, or use the Download button on individual video cards
 
-> **搜索收藏夹**：在左侧搜索框输入关键词，即时过滤收藏夹；支持拖拽调整排列顺序。
+> **Tip:** Type in the search box on the left to filter folders in real time. Drag rows to reorder them.
 
-### 3. 发现用户
+### 3. Discovering Users
 
-在「发现」标签页输入用户 UID（`MS4wLjABAAAAxxx`）或主页链接，点击「搜索 / 添加用户」后同步其视频作品并批量下载。
+Go to the **"Discover"** tab, enter a UID or profile URL, and click **"Search / Add User"**. The app resolves the profile and syncs their videos for batch download.
 
-### 4. 解析分享链接
+### 4. Parsing Share Links
 
-在「解析」标签页粘贴从抖音 App 分享复制的文字（含短链），点击「解析视频」提取真实直链，历史记录自动保存。
+Go to the **"Parse"** tab and paste the text copied from the Douyin App share sheet (it contains a short link like `https://v.douyin.com/…`). Click **"Parse Video"** to extract the real direct URL. The result is added to the history list automatically.
 
-### 5. 管理下载
+### 5. Managing Downloads
 
-在「下载」标签页查看全部任务，利用顶部搜索框过滤标题，使用全局按钮批量控制，或逐条暂停 / 继续。
-
----
-
-## 🏗️ 工作原理
-
-```
-分享短链 → 重定向解析 → 提取 aweme_id
-    ↓
-官方 API /aweme/v1/feed/（无需登录）
-    ↓ 失败
-DrissionPage 驱动 Chrome 拦截 aweme/detail 网络请求
-    ↓
-requests 多线程下载（自动去除水印参数）
-```
-
-- Cookie 保存于 `~/.douyin_tool_cookie`
-- 浏览器 Profile 保存于 `~/.douyin_drission_profile`
-- 视频元数据缓存于 `.cache/`（可清空重拉）
+Switch to the **"Download"** tab to see all queued tasks. Use the search bar to filter by title, global buttons for bulk control, or operate tasks individually.
 
 ---
 
-## 📦 项目结构
+## 🏗️ How It Works
+
+```
+Share short-link → follow redirect → extract aweme_id
+         ↓
+Official API  /aweme/v1/feed/  (no login required)
+         ↓  fails
+DrissionPage drives Chrome → intercept aweme/detail network request
+         ↓
+requests multi-threaded download  (watermark parameter stripped automatically)
+```
+
+**Local data paths:**
+
+| Item | Path |
+|------|------|
+| Session cookie | `~/.douyin_tool_cookie` |
+| Chrome profile | `~/.douyin_drission_profile` |
+| Video metadata cache | `.cache/` (deletable to force re-fetch) |
+
+---
+
+## 📦 Project Structure
 
 ```
 .
-├── app.py              # 主程序
-├── analyze_dom.py      # 调试工具：分析收藏夹页面 DOM 滚动容器
-├── requirements.txt    # 依赖列表
-├── Screenshot*.png     # 界面截图
-└── videos/             # 默认下载目录
+├── app.py              # Main application
+├── analyze_dom.py      # Debug tool: inspect scroll containers on the favorites page
+├── requirements.txt    # Python dependencies
+├── Screenshot*.png     # UI screenshots
+└── videos/             # Default download directory
 ```
 
 ---
 
-## ⚠️ 注意事项
+## ⚠️ Disclaimer
 
-- 本工具仅供个人学习和研究使用，请遵守抖音使用条款及相关版权规定
-- 需本地安装 Google Chrome，版本需与 DrissionPage 兼容
-- 下载速度受网络环境和抖音服务器限制
+- This tool is intended for **personal learning and research only**. Please comply with Douyin's Terms of Service and respect copyright.
+- Google Chrome must be installed locally and its version must be compatible with DrissionPage.
+- Download speed depends on your network and Douyin's server-side rate limits.
 
 ---
 
-## 📜 更新日志
+## 📜 Changelog
 
-### v1.2.0（当前）
-- 切换底层驱动为 DrissionPage，通过 Chrome 网络拦截获取真实无水印下载链接
-- 新增「发现」标签页：搜索任意用户并下载其视频
-- 新增「解析」标签页：分享文本一键解析，历史记录持久化
-- 收藏夹列表支持拖拽排序、关键词搜索 + 自动补全
-- 全局日志面板支持折叠 / 展开，切换标签自动收起
-- 下载中心新增标题搜索过滤
-- 新增 4 套主题（深色 / 午夜蓝 / 翠绿极简 / 暖沙浅色），切换即时预览
-- Cookie 持久化，重启免登录
-- 设置面板：并发数、同步上限可配置
+### v1.2.0 (current)
+- Switched core engine to DrissionPage — intercepts Chrome network requests to obtain real, watermark-free download URLs
+- Added **Discover** tab: look up any user and download their videos
+- Added **Parse** tab: one-paste share-link parsing with persistent history
+- Favorites: drag-to-reorder and real-time keyword search with auto-complete
+- Global log panel: collapsible/expandable with a single click; auto-hides on tab switch
+- Download Center: title search filter
+- 4 built-in themes (Dark / Midnight Blue / Minimal Green / Warm Sand) with live preview
+- Cookie persistence — no re-login required after restart
+- Settings panel: configurable concurrency and sync limits
 
 ### v1.1.0
-- 新增用户主页视频下载
-- 新增用户喜欢视频下载
-- 支持 UID 和 URL 两种输入方式
+- Added user profile video download
+- Added user likes video download
+- Accept both UID and URL as input
 
 ### v1.0.0
-- 基础收藏视频抓取与下载
-- 下载任务管理（暂停 / 继续 / 取消）
-- 深色主题界面
-- 自定义下载目录
+- Basic favorites scraping and download
+- Task management (pause / resume / cancel)
+- Dark theme UI
+- Custom download directory
 
 ---
 
-## 🤝 贡献
+## 🤝 Contributing
 
-欢迎提交 Issue 和 Pull Request。
+Issues and Pull Requests are welcome.
 
-## 📄 许可证
+## 📄 License
 
 [MIT License](LICENSE)
