@@ -58,16 +58,16 @@
 ## 📸 Screenshots
 
 ### My Favorites — Video Grid + Folder Search
-![My Favorites](assets/Screenshot01.png)
+![My Favorites](assets/screenshots/Screenshot01.png)
 
 ### Discover Users — Profile Info + Video List
-![Discover Users](assets/Screenshot02.png)
+![Discover Users](assets/screenshots/Screenshot02.png)
 
 ### Download Center — Multi-Source Task Management
-![Download Center](assets/Screenshot03.png)
+![Download Center](assets/screenshots/Screenshot03.png)
 
 ### Parse Share Links
-![Parse](assets/Screenshot04.png)
+![Parse](assets/screenshots/Screenshot04.png)
 
 ---
 

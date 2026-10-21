@@ -56,16 +56,16 @@
 ## 📸 界面截图
 
 ### 我的收藏 — 视频卡片网格 + 收藏夹搜索
-![我的收藏](assets/Screenshot01.png)
+![我的收藏](assets/screenshots/Screenshot01.png)
 
 ### 发现用户 — 用户信息 + 视频列表
-![发现用户](assets/Screenshot02.png)
+![发现用户](assets/screenshots/Screenshot02.png)
 
 ### 下载中心 — 多来源任务管理
-![下载中心](assets/Screenshot03.png)
+![下载中心](assets/screenshots/Screenshot03.png)
 
 ### 解析分享链接
-![解析](assets/Screenshot04.png)
+![解析](assets/screenshots/Screenshot04.png)
 
 ---
 

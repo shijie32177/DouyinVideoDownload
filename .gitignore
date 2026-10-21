@@ -4,3 +4,5 @@ __pycache__/
 *.pyc
 .idea/
 screenshot_*.png
+.DS_Store
+.claude/
