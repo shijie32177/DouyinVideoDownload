@@ -1,4 +1,4 @@
-# 🎵 抖音视频下载工具
+# <img src="douyin_icon.png" width="32" height="32" style="vertical-align:middle"/> 抖音视频下载工具
 
 > 基于 PyQt5 + DrissionPage 的桌面客户端，驱动本地 Chrome 浏览器抓取抖音视频，无水印下载。
 

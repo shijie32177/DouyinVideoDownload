@@ -1,4 +1,4 @@
-# 🎵 Douyin Video Downloader
+# <img src="douyin_icon.png" width="32" height="32" style="vertical-align:middle"/> Douyin Video Downloader
 
 > A PyQt5 + DrissionPage desktop client that drives your local Chrome browser to capture Douyin (TikTok China) videos and download them **watermark-free**.
 
