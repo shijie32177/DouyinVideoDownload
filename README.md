@@ -7,6 +7,8 @@
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 ![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)
 
+[English](README.en.md)
+
 ---
 
 ## ✨ 功能概览
