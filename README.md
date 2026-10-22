@@ -44,7 +44,7 @@
 - Custom download directory; click "Open" to reveal the folder in your file manager
 
 ### 📋 Global Log Panel
-- Real-time log at the bottom of the window shows fetch progress and errors
+- Real-time timestamped log at the bottom of the window shows every step of the sync process — Cookie injection, page scrolling, video count, and completion status
 - Click the **collapse / expand** arrow on the splitter handle to hide the log without losing content space
 - Log auto-collapses when switching between tabs
 
@@ -68,6 +68,9 @@
 
 ### Parse Share Links
 ![Parse](assets/screenshots/Screenshot04.png)
+
+### Global Log Panel — Real-time Sync Progress
+![Global Log](assets/screenshots/Screenshot05.png)
 
 ---
 
