@@ -15,13 +15,12 @@
 
 ### 📁 My Favorites
 - Browse collections by folder with thumbnail previews and video duration labels
-- Folder list shows **cover thumbnails**; left panel is **collapsible** to maximize the video grid
 - **Drag-and-drop** to reorder your favorite folders freely
 - Real-time **search bar** with auto-complete to filter folders instantly
-- **Video search** inside each folder to filter cards by title in real time
 - One-click sync: refresh folder list / fetch video metadata / download entire folder
-- Clear local cache to force a full re-fetch; multi-select, batch download, and **Export Links** to `.txt`
-- Video card context menu: Copy Link / Open File / Remove
+- Clear local cache to force a full re-fetch; multi-select and batch download
+- Deleted folders are visually marked (greyed name + red badge) rather than silently disappearing
+- Video card context menu: Open File / Remove from list
 
 ### 🎬 My Posts / My Likes
 - Automatically syncs all videos you have published or liked after login
@@ -29,7 +28,7 @@
 
 ### 🔍 Discover Users
 - Enter a UID (`MS4wLjABAAAAxxx`) or profile URL to look up any user
-- User info card displays avatar (circle crop), nickname, follower count, and total video count
+- User info card displays a **circle-cropped avatar**, nickname, follower count, and total video count
 - User list is persisted locally — no need to re-search on next launch
 - Select all / batch download from any user's video grid
 
@@ -55,9 +54,11 @@
 - **macOS system notification** on download completion (can be toggled in Settings)
 
 ### 🛡️ Reliability
-- **CAPTCHA detection**: automatically detects slider verification during sync and pauses with a prompt — show the browser window and solve it manually to continue
+- **CAPTCHA detection**: automatically detects slider verification during sync and pauses with a prompt — enable "Show browser window" in Settings and solve it manually to continue
 - **Cookie expiry detection**: detects login redirect mid-sync and prompts you to re-login immediately
-- **Deleted folder badge**: folders removed from Douyin are marked visually in the list rather than silently disappearing
+- **Deleted folder badge**: folders removed from Douyin are greyed out with a red "Deleted" tag
+
+### 📋 Global Log Panel
 - Real-time timestamped log at the bottom of the window shows every step of the sync process — Cookie injection, page scrolling, video count, and completion status
 - Click the **collapse / expand** arrow on the splitter handle to hide the log without losing content space
 - Log auto-collapses when switching between tabs
@@ -192,13 +193,13 @@ requests multi-threaded download  (watermark parameter stripped automatically)
 ## 📜 Changelog
 
 ### v1.1.0
-- **Favorites**: folder list now shows cover thumbnails; left panel collapsible to icon-only mode; added per-folder video search; batch export selected URLs to `.txt`; video card context menu adds "Copy Link"; deleted folders are visually marked in the list
-- **Discover**: user info card avatar rendered as circle crop
-- **Parse tab**: auto-detects Douyin links in clipboard and pre-fills input on focus
-- **Download Center**: live stats bar (total / completed / in-progress); colored source badges per origin; double-click completed row to open local file
-- **Notifications**: global toast messages for operation feedback; macOS system notification on download completion (toggleable in Settings)
-- **Reliability**: CAPTCHA detection pauses sync and prompts for manual solving; Cookie expiry detection triggers immediate re-login prompt
-- **Settings**: show/hide browser window during sync; download-complete notification toggle
+- **Parse tab**: auto-detects Douyin links in clipboard on tab focus and pre-fills the input automatically
+- **Download Center**: live stats bar (total / completed / in-progress); colored source badges — Favorites (blue) / Posts (green) / Likes (pink) / Discover (purple) / Parse (orange); double-click a completed row to open the local file directly
+- **Notifications**: global toast messages (bottom-right, fade animation) for non-blocking operation feedback; macOS system notification on download completion (toggleable in Settings)
+- **Reliability**: automatic CAPTCHA detection pauses sync and prompts for manual solving; Cookie expiry detection triggers immediate re-login prompt mid-sync
+- **Discover**: user info card avatar rendered as a circle crop
+- **Favorites**: deleted folders are visually marked (greyed name + red "Deleted" badge) rather than silently disappearing
+- **Settings**: "Show browser window during sync" toggle (hidden by default for speed; reveal to solve CAPTCHAs manually); download-complete notification toggle
 
 ### v1.0.0
 - DrissionPage engine — intercepts Chrome network requests to obtain real, watermark-free download URLs
