@@ -487,6 +487,7 @@ class FolderItemWidget(QWidget):
         super().__init__(parent)
         self._fid = folder_meta["id"]
         is_default = (self._fid == "default")
+        is_deleted = bool(folder_meta.get("deleted"))
 
         lay = QVBoxLayout(self)
         if is_default:
@@ -514,14 +515,25 @@ class FolderItemWidget(QWidget):
             name_row.addWidget(self.name_lbl, 1)
             lay.addLayout(name_row)
         else:
+            name_row = QHBoxLayout(); name_row.setSpacing(6); name_row.setContentsMargins(0,0,0,0)
             self.name_lbl = QLabel(name)
             self.name_lbl.setWordWrap(True)
+            name_color = "#888" if is_deleted else "#dcdcdc"
             self.name_lbl.setStyleSheet(
-                "color:#dcdcdc;font-size:13pt;font-weight:700;background:transparent;")
-            lay.addWidget(self.name_lbl)
+                f"color:{name_color};font-size:13pt;font-weight:700;background:transparent;")
+            name_row.addWidget(self.name_lbl, 1)
+            if is_deleted:
+                del_lbl = QLabel("已删除")
+                del_lbl.setStyleSheet(
+                    "color:#ff6b6b;font-size:9pt;font-weight:600;background:#3a1f1f;"
+                    "border:1px solid #7a2f2f;border-radius:3px;padding:0 4px;")
+                del_lbl.setFixedHeight(18)
+                name_row.addWidget(del_lbl)
+            lay.addLayout(name_row)
 
         self._meta_lbl = QLabel(f"{count} 个视频  ·  {ts}")
-        self._meta_lbl.setStyleSheet("color:#bbb;font-size:10pt;background:transparent;")
+        meta_color = "#666" if is_deleted else "#bbb"
+        self._meta_lbl.setStyleSheet(f"color:{meta_color};font-size:10pt;background:transparent;")
         lay.addWidget(self._meta_lbl)
 
     def set_selected(self, selected: bool):
@@ -966,9 +978,10 @@ class FolderListWorker(QObject):
     cookie_expired = pyqtSignal()
     finished       = pyqtSignal()
 
-    def __init__(self, cookie_str):
+    def __init__(self, cookie_str, show_browser=False):
         super().__init__()
         self.cookie_str = cookie_str
+        self.show_browser = show_browser
 
     @staticmethod
     def _inject(page, cookie_str, log_fn=None):
@@ -983,6 +996,13 @@ class FolderListWorker(QObject):
                                     "domain": ".douyin.com", "path": "/"})
         if log_fn:
             log_fn(f"正在注入 {len(cookies)} 个 Cookie...")
+        # 必须先导航到 douyin 域名才能让 set.cookies 生效（空白页注入被浏览器忽略）
+        try:
+            if not page.url or not page.url.startswith("https://"):
+                page.get("https://www.douyin.com/favicon.ico")
+                page.wait.doc_loaded(timeout=10)
+        except Exception:
+            pass
         for ck in cookies:
             try:
                 page.set.cookies(ck)
@@ -996,31 +1016,28 @@ class FolderListWorker(QObject):
         try:
             from DrissionPage import ChromiumPage, ChromiumOptions
             subprocess.run(["pkill","-f","remote-debugging-port=9334"], capture_output=True)
-            time.sleep(0.5)
+            time.sleep(0.1)
             opts = ChromiumOptions()
-            opts.headless(False)
+            opts.headless(not self.show_browser)
             opts.set_argument("--no-sandbox"); opts.set_argument("--disable-gpu")
             opts.set_user_data_path(os.path.join(os.path.expanduser("~"),".douyin_drission_profile"))
             opts.set_local_port(9334)
             self.log.emit("正在启动 Chrome...")
             page = ChromiumPage(addr_or_opts=opts)
-            # 先导航到域名，再注入 cookie，再直接打开收藏夹页面
-            page.get("https://www.douyin.com"); time.sleep(1)
             self._inject(page, self.cookie_str, self.log.emit)
-            page.get("https://www.douyin.com/user/self?showSubTab=favorite_folder&showTab=favorite_collection"); time.sleep(3)
 
-            self.log.emit("验证登录状态...")
+            self.log.emit("获取收藏夹列表...")
+            # 先开监听再导航，确保第一个 collects/list 包不会被 listen.start() 的 clear() 丢弃
+            page.listen.start("collects/list")
+            page.get("https://www.douyin.com/user/self?showSubTab=favorite_folder&showTab=favorite_collection")
+            page.wait.doc_loaded(timeout=20)
+
             if "passport" in page.url or "login" in page.url.lower():
                 self.log.emit("❌ Cookie 已过期，需要重新登录")
                 self.cookie_expired.emit(); return
-            self.log.emit("✅ 登录有效")
 
             self.log.emit("获取收藏夹列表...")
-            # 真实 API：www-hj.douyin.com/aweme/v1/web/collects/list/
-            # 用 cursor 分页，每页 10 条，滚动触发下一页
-            page.listen.start("collects/list")
-            page.refresh()
-            time.sleep(3)
+            # listen 已开，页面已加载，直接等包，不需要再 refresh
 
             folders = []
             seen_ids = set()
@@ -1067,8 +1084,8 @@ class FolderListWorker(QObject):
                     self.log.emit(f"  已到末页")
                     break
 
-                page.scroll.to_bottom()
-                time.sleep(2)
+                # 必须滚动内层容器（.route-scroll-container），page.scroll.to_bottom() 只滚 window
+                page.run_js("var el=document.querySelector('.route-scroll-container');if(el)el.scrollTop=el.scrollHeight+9999;else window.scrollTo(0,document.body.scrollHeight+9999);")
                 page_num += 1
 
             page.listen.stop(); page.quit()
@@ -1098,11 +1115,12 @@ class FolderVideoWorker(QObject):
     cookie_expired = pyqtSignal()
     finished       = pyqtSignal()
 
-    def __init__(self, cookie_str, folder_id, folder_name):
+    def __init__(self, cookie_str, folder_id, folder_name, show_browser=False):
         super().__init__()
         self.cookie_str  = cookie_str
         self.folder_id   = folder_id
         self.folder_name = folder_name
+        self.show_browser = show_browser
 
     @staticmethod
     def _inject(page, cookie_str, log_fn=None):
@@ -1117,6 +1135,13 @@ class FolderVideoWorker(QObject):
                                     "domain": ".douyin.com", "path": "/"})
         if log_fn:
             log_fn(f"正在注入 {len(cookies)} 个 Cookie...")
+        # 必须先导航到 douyin 域名才能让 set.cookies 生效（空白页注入被浏览器忽略）
+        try:
+            if not page.url or not page.url.startswith("https://"):
+                page.get("https://www.douyin.com/favicon.ico")
+                page.wait.doc_loaded(timeout=10)
+        except Exception:
+            pass
         for ck in cookies:
             try:
                 page.set.cookies(ck)
@@ -1152,15 +1177,14 @@ class FolderVideoWorker(QObject):
         try:
             from DrissionPage import ChromiumPage, ChromiumOptions
             subprocess.run(["pkill","-f","remote-debugging-port=9334"], capture_output=True)
-            time.sleep(0.5)
+            time.sleep(0.1)
             opts = ChromiumOptions()
-            opts.headless(False)
+            opts.headless(not self.show_browser)
             opts.set_argument("--no-sandbox"); opts.set_argument("--disable-gpu")
             opts.set_user_data_path(os.path.join(os.path.expanduser("~"),".douyin_drission_profile"))
             opts.set_local_port(9334)
             self.log.emit("正在启动 Chrome...")
             page = ChromiumPage(addr_or_opts=opts)
-            page.get("https://www.douyin.com"); time.sleep(1)
             self._inject(page, self.cookie_str, self.log.emit)
 
             fid   = self.folder_id
@@ -1170,23 +1194,19 @@ class FolderVideoWorker(QObject):
             max_videos = 100 if fid == "default" else 9999
 
             if fid == "default":
-                # ── 默认收藏：直接导航到专属 URL ─────────────────────────────
+                # ── 默认收藏：先开监听再导航，确保包不被丢弃 ──────────────
                 tgt = "https://www.douyin.com/user/self?showSubTab=favorite_collection&showTab=favorite_collection"
                 listen_kw = "listcollection"
                 def is_target_pkt(pkt_url, body):
                     return "aweme_list" in body and "listcollection" in (pkt_url or "")
 
-                page.get(tgt); time.sleep(3)
-                self.log.emit("验证登录状态...")
+                self.log.emit(f"正在打开默认收藏...")
+                page.listen.start(listen_kw)
+                page.get(tgt)
+                page.wait.doc_loaded(timeout=20)
                 if "passport" in page.url or "login" in page.url.lower():
                     self.log.emit("❌ Cookie 已过期，需要重新登录")
                     self.cookie_expired.emit(); return
-                self.log.emit("✅ 登录有效")
-
-                self.log.emit(f"正在打开默认收藏...")
-                page.listen.start(listen_kw)
-                page.refresh()
-                time.sleep(3)
 
             else:
                 # ── 自定义收藏夹：导航到收藏夹列表，找到 li 后点击触发 API ──
@@ -1271,7 +1291,7 @@ class FolderVideoWorker(QObject):
                         r = page.run_js(SCROLL_LEFT_JS)
                     except Exception:
                         break
-                    time.sleep(1.2)
+                    time.sleep(0.5)
                     _drain()
                     parts = str(r).split('/')
                     if len(parts) == 3:
@@ -1376,8 +1396,7 @@ return 'window fallback';
                     except Exception as e:
                         self.log.emit(f"  滚动出错: {e}，尝试 scroll.to_bottom()")
                         page.scroll.to_bottom()
-
-                    time.sleep(2.5)
+                    # 不需要 sleep，下一轮 listen.wait 会等包到达
                     page_num += 1
 
             page.listen.stop()
@@ -1401,13 +1420,15 @@ class AllFoldersVideoWorker(QObject):
     folders_loaded = pyqtSignal(list)            # [{id,name,count,...}]
     folder_done    = pyqtSignal(str, str, list)  # fid, fname, videos
     cookie_expired = pyqtSignal()
+    verification_needed = pyqtSignal()           # 检测到人机验证，需要用户手动处理
     finished       = pyqtSignal()
 
-    def __init__(self, cookie_str, mode="all", folders=None):
+    def __init__(self, cookie_str, mode="all", folders=None, show_browser=False):
         super().__init__()
         self.cookie_str  = cookie_str
-        self.mode        = mode      # "list_only" | "videos_only" | "all"
-        self.folders     = folders   # 仅 videos_only 时使用，由主线程传入
+        self.mode        = mode
+        self.folders     = folders
+        self.show_browser = show_browser
         self._paused     = False
         self._cancelled  = False
 
@@ -1425,12 +1446,48 @@ class AllFoldersVideoWorker(QObject):
         while self._paused and not self._cancelled:
             time.sleep(0.3)
 
-    def _fetch_folder_list(self, page):
+    _CAPTCHA_JS = """
+(function(){
+  var sels=['#captcha_container','[class*="captcha"]','[class*="verify"]',
+            '[id*="captcha"]','[id*="verify"]','.secsdk-captcha-drag-icon',
+            '[class*="secsdk"]','[class*="verify-wrap"]'];
+  for(var i=0;i<sels.length;i++){
+    var el=document.querySelector(sels[i]);
+    if(el){var s=window.getComputedStyle(el);if(s.display!=='none'&&s.visibility!=='hidden'&&parseFloat(s.opacity||'1')>0)return true;}
+  }
+  return false;
+})()
+"""
+
+    def _check_and_handle_verification(self, page):
+        """检测人机验证覆盖层，若存在则发信号暂停并等待用户处理完后再继续。"""
+        try:
+            has_captcha = bool(page.run_js(self._CAPTCHA_JS))
+        except Exception:
+            return
+        if not has_captcha:
+            return
+        self._log("⚠️ 检测到人机验证（滑块/验证码），已暂停同步，请手动完成验证后继续")
+        self.verification_needed.emit()
+        # 暂停自己，等待主线程调用 resume() 或 cancel()
+        self._paused = True
+        self._wait_if_paused()
+        self._log("  验证完成，继续同步...")
+
+
         """在已有 page 上获取收藏夹列表，返回 [{id,name,count}]。"""
         self._log("获取收藏夹列表...")
+        FAV_URL = "https://www.douyin.com/user/self?showSubTab=favorite_folder&showTab=favorite_collection"
+        # 先开监听再导航，确保第一个包不被 listen.start() 的内部 clear() 丢弃
         page.listen.start("collects/list")
-        page.get("https://www.douyin.com/user/self?showSubTab=favorite_folder&showTab=favorite_collection")
+        page.get(FAV_URL)
         page.wait.doc_loaded(timeout=30)
+
+        if "passport" in page.url or "login" in page.url.lower():
+            self._log("❌ Cookie 已过期，需要重新登录")
+            self.cookie_expired.emit()
+            return []
+        self._log("✅ 登录有效")
 
         folders = []; seen_ids = set(); page_num = 1
         while page_num <= 100:
@@ -1461,7 +1518,8 @@ class AllFoldersVideoWorker(QObject):
 
             self._log(f"  第 {page_num} 页 +{added} 个收藏夹，累计 {len(folders)} 个")
             if not body.get("has_more", False): break
-            page.scroll.to_bottom(); time.sleep(2); page_num += 1
+            page.run_js("var el=document.querySelector('.route-scroll-container');if(el)el.scrollTop=el.scrollHeight+9999;else window.scrollTo(0,document.body.scrollHeight+9999);")
+            page_num += 1
 
         page.listen.stop()
 
@@ -1481,6 +1539,13 @@ class AllFoldersVideoWorker(QObject):
                                     "domain": ".douyin.com", "path": "/"})
         if log_fn:
             log_fn(f"正在注入 {len(cookies)} 个 Cookie...")
+        # 必须先导航到 douyin 域名才能让 set.cookies 生效（空白页注入被浏览器忽略）
+        try:
+            if not page.url or not page.url.startswith("https://"):
+                page.get("https://www.douyin.com/favicon.ico")
+                page.wait.doc_loaded(timeout=10)
+        except Exception:
+            pass
         for ck in cookies:
             try:
                 page.set.cookies(ck)
@@ -1515,6 +1580,37 @@ class AllFoldersVideoWorker(QObject):
     # verify_4 实测确认：滚动 .route-scroll-container 能触发 cursor=10/20/30 分页请求
     _SCROLL_JS = "var el=document.querySelector('.route-scroll-container');if(el){var b=el.scrollTop;el.scrollTop=el.scrollHeight+9999;return 'rc:'+b+'->'+el.scrollTop;}var b=window.scrollY;window.scrollTo(0,document.body.scrollHeight+9999);return 'win:'+b+'->'+window.scrollY;"
 
+    # 检测页面是否已到底（"暂时没有更多了" 或同类提示）
+    _NO_MORE_JS = """
+(function(){
+  // 1. 先检查用户指定的具体 XPath（视频列表页"没有更多内容了"节点）
+  try{
+    var xpaths=[
+      '/html/body/div[2]/div[1]/div[4]/div[2]/div/div/div/div/div/div/div/div/div[2]/div/div[2]/div/div/div[2]/div/div[2]/div/div[2]/div/div',
+      '/html/body/div[2]/div[1]/div[4]/div[2]/div/div/div/div/div/div/div/div/div[2]/div/div[2]/div/div/div[2]/div/div[2]/div/div[2]/div'
+    ];
+    for(var xi=0;xi<xpaths.length;xi++){
+      var xr=document.evaluate(xpaths[xi],document,null,XPathResult.FIRST_ORDERED_NODE_TYPE,null);
+      var xel=xr.singleNodeValue;
+      if(xel){
+        var xt=(xel.innerText||xel.textContent||'').trim();
+        if(xt.indexOf('没有更多')>=0||xt.indexOf('暂时没有')>=0||xt.indexOf('到底了')>=0||xt.indexOf('内容了')>=0) return true;
+      }
+    }
+  }catch(e){}
+  // 2. 全页叶子节点扫描（兜底）
+  var texts=['暂时没有更多了','没有更多了','没有更多内容了','已经到底了','到底了','No more'];
+  var all=document.querySelectorAll('*');
+  for(var i=0;i<all.length;i++){
+    var el=all[i];
+    if(el.children.length>0) continue;
+    var t=(el.innerText||el.textContent||'').trim();
+    for(var j=0;j<texts.length;j++){if(t===texts[j]||t.indexOf(texts[j])>=0)return true;}
+  }
+  return false;
+})()
+"""
+
     # 左侧面板滚动 JS（与右侧共用同一个 .route-scroll-container，verify_1 已确认）
     _SCROLL_LEFT_JS = "var el=document.querySelector('.route-scroll-container');if(el){el.scrollTop+=400;return el.scrollTop+'/'+el.scrollHeight+'/'+el.clientHeight;}return 'no_rc';"
 
@@ -1522,10 +1618,15 @@ class AllFoldersVideoWorker(QObject):
         try:
             r = page.run_js(self._SCROLL_JS)
             self._log(f"    滚动视频列表: {r or 'None'}")
-            return r
         except Exception as e:
             self._log(f"    滚动出错: {e}")
-            return None
+
+    def _is_at_bottom(self, page):
+        """检测页面是否显示了"暂时没有更多了"等到底提示。"""
+        try:
+            return bool(page.run_js(self._NO_MORE_JS))
+        except Exception:
+            return False
 
     def _scroll_left_panel(self, page):
         """
@@ -1549,9 +1650,9 @@ class AllFoldersVideoWorker(QObject):
                 break
             if not r or r == 'no_rc':
                 break
-            time.sleep(1.2)                        # 等待懒加载渲染
+            time.sleep(0.4)                        # 等待懒加载渲染
             try:
-                cur_count = len(page.eles(f'css:.{self._LI_CLS}'))
+                cur_count = len(self._find_panel_lis(page))
             except Exception:
                 break
             # 解析滚动状态
@@ -1565,7 +1666,7 @@ class AllFoldersVideoWorker(QObject):
                     pass
             prev_count = cur_count
         try:
-            final = len(page.eles(f'css:.{self._LI_CLS}'))
+            final = len(self._find_panel_lis(page))
         except Exception:
             final = prev_count
         self._log(f"  左侧面板滚动完成，共 {final} 个 li")
@@ -1593,15 +1694,33 @@ class AllFoldersVideoWorker(QObject):
         def is_target(url, body):
             if is_default:
                 return "aweme_list" in body and "listcollection" in (url or "")
-            return "aweme_list" in body and f"collects_id={fid}" in (url or "")
+            # 用 & 或 ? 锚定，防止 collects_id=123 误匹配 collects_id=1234
+            u = url or ""
+            return "aweme_list" in body and (
+                f"collects_id={fid}&" in u or
+                f"collects_id={fid}" == u[-len(f"collects_id={fid}"):] or
+                u.endswith(f"collects_id={fid}")
+            )
 
         def collect_next_page(first_pkt_timeout):
-            """从 listen 流中等到下一个目标包，然后收完静默窗口内的并发包。"""
+            """从 listen 流中等到下一个目标包，然后收完静默窗口内的并发包。
+            在等包期间每 2s 轮询底部提示，一旦出现立即返回空列表（不再硬等超时）。"""
             bodies = []
             deadline = time.time() + first_pkt_timeout
+            last_bottom_check = 0.0
             while time.time() < deadline:
                 pkt = page.listen.wait(timeout=2)
                 if not pkt:
+                    # 每次 2s 无包，检查底部 DOM 和验证码
+                    now = time.time()
+                    if now - last_bottom_check >= 2.0:
+                        last_bottom_check = now
+                        self._check_and_handle_verification(page)
+                        if self._cancelled:
+                            return bodies
+                        if self._is_at_bottom(page):
+                            self._log("    检测到底部提示，停止等包")
+                            return bodies
                     continue
                 try:
                     url = (pkt.url or "")
@@ -1677,17 +1796,31 @@ class AllFoldersVideoWorker(QObject):
             if not bodies:
                 consec_timeout += 1
                 self._log(f"    第 {page_num} 页等包超时（连续 {consec_timeout}）")
+                if self._is_at_bottom(page):
+                    self._log("    检测到底部提示，同步完成"); break
                 if consec_timeout >= 2:
                     self._log("    连续超时，停止"); break
                 self._do_scroll(page)
+                if self._is_at_bottom(page):
+                    self._log("    滚动后检测到底部提示，同步完成"); break
                 continue
 
             consec_timeout = 0
             added, any_has_more = extract_videos(bodies)
             self._log(f"    第 {page_num} 页 {len(bodies)} 包 +{added}，累计 {len(videos)}")
 
+            # 接口明确说没有更多，或已达上限，直接结束
             if not any_has_more or len(videos) >= max_videos:
                 self._log("    同步完成"); break
+
+            # 收到数据后先检测底部，再决定是否继续滚动
+            if self._is_at_bottom(page):
+                self._log("    检测到底部提示，同步完成"); break
+
+            # 稍等一下让 DOM 完成渲染，再检测一次，避免滚动时 DOM 还未刷新
+            time.sleep(0.3)
+            if self._is_at_bottom(page):
+                self._log("    检测到底部提示，同步完成"); break
 
             self._do_scroll(page)
             page_num += 1
@@ -1697,24 +1830,142 @@ class AllFoldersVideoWorker(QObject):
     LIST_URL = ("https://www.douyin.com/user/self"
                 "?showSubTab=favorite_folder&showTab=favorite_collection")
 
-    # 左侧收藏夹 li 的稳定 class（DOM 分析确认）
+    # 收藏夹列表页（showSubTab=favorite_folder）左侧 li class
     _LI_CLS = "W4n61X0W"
+    _li_cls_cache = None
 
-    def _find_folder_li(self, page, fname):
-        """在左侧收藏夹列表中找到目标 li 元素。li 文字: '名称\\n共 N 作品'"""
+    # 视频列表页（点击收藏夹进入后）左侧面板每个收藏夹条目的 div class
+    _FOLDER_ITEM_CLS = "yKNs6LhU"
+
+    # 探测左侧收藏夹 li 的 JS：返回第一个 class 名 + 样本文字，用于调试
+    _DETECT_LI_CLS_JS = """
+(function(){
+  var lis = document.querySelectorAll('li');
+  for(var i=0;i<lis.length;i++){
+    var t=(lis[i].innerText||'').trim();
+    var cls=lis[i].className||'';
+    // 包含「共」+「作品」：旧版抖音
+    if(t.indexOf('共')>=0 && t.indexOf('作品')>=0 && cls){
+      return cls.split(' ')[0]+'|'+t.substring(0,30);
+    }
+  }
+  // 宽泛兜底：找左侧导航区域的 li（有多个同类 li 且含收藏夹关键字）
+  var all = document.querySelectorAll('li');
+  var counts = {};
+  for(var i=0;i<all.length;i++){
+    var c=(all[i].className||'').split(' ')[0];
+    if(c) counts[c]=(counts[c]||0)+1;
+  }
+  // 找出出现次数 >= 5 的 class（侧边栏收藏夹列表特征）
+  for(var c in counts){
+    if(counts[c]>=5){
+      var sample=document.querySelector('li.'+c);
+      var t2=(sample?sample.innerText:'').trim().substring(0,30);
+      return c+'|'+t2+'|count='+counts[c];
+    }
+  }
+  return null;
+})()
+"""
+
+    def _find_panel_lis(self, page):
+        """返回左侧收藏夹 li 列表，先用缓存的 class，失败则动态探测。"""
+        # 1. 先用缓存 class（或默认值）
+        cls = self._li_cls_cache or self._LI_CLS
+        lis = page.eles(f'css:.{cls}')
+        if lis:
+            return lis
+        # 2. class 可能被 SPA 热更新重命名 → 运行时探测
+        try:
+            raw = page.run_js(self._DETECT_LI_CLS_JS)
+            if raw:
+                new_cls = raw.split('|')[0].strip()
+                if new_cls and new_cls != cls:
+                    self._log(f"  li class 已更新: {cls!r} → {new_cls!r}（样本: {raw!r}），缓存新值")
+                    AllFoldersVideoWorker._li_cls_cache = new_cls
+                    lis = page.eles(f'css:.{new_cls}')
+                    if lis:
+                        return lis
+        except Exception:
+            pass
+        # 3. 最终兜底：遍历所有 li，按文字内容匹配（不依赖 class）
+        try:
+            candidates = [li for li in page.eles('tag:li')
+                          if '共' in (li.text or '') and '作品' in (li.text or '')]
+            if candidates:
+                return candidates
+            # 再宽泛一点：找有多个相同 class 且文字不为空的 li 组
+            # （收藏夹 li 总是一组相同 class 的 li）
+            return []
+        except Exception:
+            return []
+
+    def _find_panel_divs(self, page):
+        """返回视频列表页左侧收藏夹面板的条目 div 列表（yKNs6LhU class）。"""
+        cls = self._FOLDER_ITEM_CLS
+        divs = page.eles(f'css:.{cls}')
+        return divs if divs else []
+
+    def _find_folder_item(self, page, fname, log_sample=False):
+        """在视频列表页左侧面板找目标收藏夹 div（yKNs6LhU）。
+        div 的 text 格式：'收藏夹名称\\n数量' 或 '收藏夹名称  数量'。
+        """
         fname_s = fname.strip()
-        lis = page.eles(f'css:.{self._LI_CLS}')
+        divs = self._find_panel_divs(page)
+        if not divs:
+            return None
+        if log_sample:
+            samples = [repr((d.text or '').strip()[:40]) for d in divs[:5]]
+            if samples:
+                self._log(f"    左侧面板 div 样本({len(divs)}个): {', '.join(samples)}")
+        for d in divs:
+            try:
+                txt = (d.text or '').strip()
+                # 取第一行（换行前）或去掉末尾数字部分
+                name_part = txt.split('\n')[0].strip().split('  ')[0].strip()
+                if name_part == fname_s:
+                    return d
+            except Exception:
+                pass
+        for d in divs:
+            try:
+                txt = (d.text or '').strip()
+                name_part = txt.split('\n')[0].strip().split('  ')[0].strip()
+                if fname_s in name_part or name_part in fname_s:
+                    return d
+            except Exception:
+                pass
+        return None
+
+    def _find_folder_li(self, page, fname, log_sample=False):
+        """在收藏夹列表页左侧找目标 li（W4n61X0W）。"""
+        fname_s = fname.strip()
+        lis = self._find_panel_lis(page)
         if not lis:
-            lis = [li for li in page.eles('tag:li')
-                   if '共' in (li.text or '') and '作品' in (li.text or '')]
+            return None
+        if log_sample:
+            samples = []
+            for li in lis[:5]:
+                try:
+                    samples.append(repr((li.text or '').strip()[:40]))
+                except Exception:
+                    pass
+            if samples:
+                self._log(f"    li 样本({len(lis)}个): {', '.join(samples)}")
         for li in lis:
-            txt = (li.text or '').strip()
-            if txt.split('\n')[0].strip() == fname_s:
-                return li
+            try:
+                txt = (li.text or '').strip()
+                if txt.split('\n')[0].strip() == fname_s:
+                    return li
+            except Exception:
+                pass
         for li in lis:
-            txt = (li.text or '').strip()
-            if fname_s in txt.split('\n')[0]:
-                return li
+            try:
+                txt = (li.text or '').strip()
+                if fname_s in txt.split('\n')[0]:
+                    return li
+            except Exception:
+                pass
         return None
 
     def _load_list_page(self, page):
@@ -1726,42 +1977,54 @@ class AllFoldersVideoWorker(QObject):
         page.wait.doc_loaded(timeout=30)
         deadline = time.time() + 20
         while time.time() < deadline:
-            if page.eles(f'css:.{self._LI_CLS}'):
+            if self._find_panel_lis(page):
                 break
             time.sleep(0.3)
-        cnt = len(page.eles(f'css:.{self._LI_CLS}'))
+        cnt = len(self._find_panel_lis(page))
         self._log(f"收藏夹列表已加载，共 {cnt} 个 li")
         return cnt
 
     def _load_and_drain(self, page):
         """
-        导航到 LIST_URL，滚动左侧面板加载所有 li，同时收集所有预取包。
+        单次导航到 LIST_URL，滚动左侧面板加载所有 li，同时收集：
+          - collects/list 包 → 收藏夹名单（替代 _fetch_folder_list 的导航）
+          - collects/video/list 包 → 视频 cursor=0 预取包
 
-        实测依据（verify_1 + verify_6）：
-        - 左侧面板和右侧视频共用同一个 .route-scroll-container
-        - 初始 ~40 个 li；每次向下滚动约 400px 追加 ~10 个 li（最多约 95 个）
-        - 滚动出新 li 时，页面同步发出这些 li 对应的 cursor=0 预取请求
-        - 因此必须在 listen 开启的状态下滚动并同步收包
+        优化：一次导航同时拿到收藏夹列表 + 视频预取，比先 _fetch_folder_list
+        再 _load_and_drain 少一次完整导航。
 
-        返回 (lis, prefetch):
-          lis      : page.eles('.W4n61X0W') - 所有收藏夹 li 元素列表（不含"默认收藏"）
-          prefetch : {collects_id: [body, ...], ...} - 预取的 cursor=0 包字典
+        调用前：调用方必须已执行 page.listen.start(kw)，kw 可以是宽泛关键字
+                （如 "collects"）以同时匹配两种 API。
+
+        返回 (folders, prefetch):
+          folders  : [{id,name,count,cover}] 从 collects/list 包解析的收藏夹列表
+                     （不含默认收藏；调用方自行追加）
+          prefetch : {collects_id: [body,...]} 视频 cursor=0 包
         """
         import re as _re
-        # listen 必须在导航前已开启（由调用方保证），这样 cursor=0 包不被 clear() 丢弃
         page.get(self.LIST_URL)
         page.wait.doc_loaded(timeout=30)
-        # 等待 SPA 渲染（抖音单页应用）
+        # 等待 SPA 渲染
         deadline = time.time() + 20
         while time.time() < deadline:
-            if page.eles(f'css:.{self._LI_CLS}'):
+            if self._find_panel_lis(page):
                 break
             time.sleep(0.3)
 
-        prefetch = {}
+        if "passport" in page.url or "login" in page.url.lower():
+            self._log("❌ Cookie 已过期，需要重新登录")
+            self.cookie_expired.emit()
+            return [], {}
+
+        prefetch = {}           # {fid: [video_body,...]}
+        folder_pages = {}       # {page_num: body} 收藏夹列表分页
+        seen_fids = set()
+        folders = []
+
+        folder_list_has_more = [False]   # 用列表让内部函数可写
 
         def _drain_now():
-            """非阻塞排空当前缓冲区中的预取包"""
+            """非阻塞排空缓冲区，同时处理两种包"""
             while True:
                 pkt = page.listen.wait(timeout=0.2)
                 if not pkt:
@@ -1771,48 +2034,107 @@ class AllFoldersVideoWorker(QObject):
                     b = pkt.response.body
                     if not isinstance(b, dict):
                         continue
+                    # 视频预取包
                     if "collects/video/list" in url and "aweme_list" in b:
                         m = _re.search(r'collects_id=(\d+)', url)
                         if m:
                             prefetch.setdefault(m.group(1), []).append(b)
                     elif "listcollection" in url and "aweme_list" in b:
                         prefetch.setdefault("default", []).append(b)
+                    # 收藏夹名单包
+                    elif "collects/list" in url and "collects_list" in b:
+                        pn = len(folder_pages)
+                        folder_pages[pn] = b
+                        for item in (b.get("collects_list") or []):
+                            fid = str(item.get("collects_id_str") or item.get("collects_id") or "")
+                            if not fid or fid in seen_fids:
+                                continue
+                            seen_fids.add(fid)
+                            fname  = item.get("collects_name") or item.get("name") or f"收藏夹_{fid}"
+                            fcount = item.get("video_count") or item.get("total_number") or 0
+                            cover  = ""
+                            cc = item.get("collects_cover") or {}
+                            ul = cc.get("url_list") or []
+                            if ul: cover = ul[0]
+                            folders.append({"id": fid, "name": fname, "count": fcount, "cover": cover})
+                        # 记录是否还有下一页名单
+                        folder_list_has_more[0] = bool(b.get("has_more"))
                 except Exception:
                     pass
 
-        # 等初始预取包：等到 2s 内无新包，或最多等 10s
+        # 等初始包
         last_new = time.time()
         hard_limit = time.time() + 10
         while time.time() < hard_limit:
-            prev_len = sum(len(v) for v in prefetch.values())
+            prev_len = sum(len(v) for v in prefetch.values()) + len(folders)
             _drain_now()
-            new_len = sum(len(v) for v in prefetch.values())
+            new_len = sum(len(v) for v in prefetch.values()) + len(folders)
             if new_len > prev_len:
                 last_new = time.time()
             elif time.time() - last_new > 2.0:
-                break  # 2s 内无新包，初始预取完成
+                break
             time.sleep(0.3)
 
-        # 滚动左侧面板加载所有 li，同时持续收包
+        # 滚动左侧面板，加载所有 li，持续收包
         self._log(f"  滚动左侧面板加载所有 li（listen 持续收包）...")
-        prev_count = len(page.eles(f'css:.{self._LI_CLS}'))
-        self._log(f"  初始 li 数: {prev_count}")
+        prev_count = len(self._find_panel_lis(page))
+        self._log(f"  初始 li 数: {prev_count}，已知收藏夹: {len(folders)} 个")
+        # DOM 探测：打印实际 li 结构，帮助确认选择器
+        try:
+            dom_info = page.run_js("""
+(function(){
+  var lis=document.querySelectorAll('li');
+  var out=[];
+  for(var i=0;i<Math.min(lis.length,5);i++){
+    var li=lis[i];
+    out.push('cls=['+li.className+'] txt='+((li.innerText||'').trim().substring(0,30)));
+  }
+  // 找收藏夹相关 li
+  var fav=[];
+  for(var i=0;i<lis.length;i++){
+    var t=(lis[i].innerText||'').trim();
+    if(t.length>0 && t.length<60 && lis[i].className){
+      fav.push('cls=['+lis[i].className.split(' ')[0]+'] txt='+t.substring(0,40));
+      if(fav.length>=5) break;
+    }
+  }
+  return 'total_li='+lis.length+' || samples: '+fav.join(' | ');
+})()
+""")
+            self._log(f"  [DOM探测] {dom_info}")
+        except Exception as e:
+            self._log(f"  [DOM探测失败] {e}")
 
         for scroll_i in range(30):
             try:
                 r = page.run_js(self._SCROLL_LEFT_JS)
             except Exception:
                 break
-            time.sleep(1.2)
-            _drain_now()     # 滚出新 li 时立即收对应的预取包
+            time.sleep(0.4)
+            _drain_now()
+            # 若 collects/list 还有下一页，需要滚到底触发下一页请求（名单 API 分页机制）
+            if folder_list_has_more[0]:
+                folder_list_has_more[0] = False
+                try:
+                    page.run_js("var el=document.querySelector('.route-scroll-container');if(el)el.scrollTop=el.scrollHeight+9999;else window.scrollTo(0,document.body.scrollHeight+9999);")
+                except Exception:
+                    pass
+                # 等新的名单包到达
+                t_wait = time.time() + 5
+                prev_f = len(folders)
+                while time.time() < t_wait:
+                    _drain_now()
+                    if len(folders) > prev_f:
+                        break
+                    time.sleep(0.2)
+                self._log(f"  collects/list 翻页后收藏夹={len(folders)}")
             try:
-                cur = len(page.eles(f'css:.{self._LI_CLS}'))
+                cur = len(self._find_panel_lis(page))
             except Exception:
                 break
             if cur != prev_count:
-                self._log(f"  scroll {scroll_i+1}: li={cur}")
+                self._log(f"  scroll {scroll_i+1}: li={cur}，收藏夹={len(folders)}")
                 prev_count = cur
-            # 检查是否到底
             parts = str(r).split('/')
             if len(parts) == 3:
                 try:
@@ -1822,161 +2144,199 @@ class AllFoldersVideoWorker(QObject):
                 except Exception:
                     pass
 
-        # 再等 2s 让最后一批预取到达
+        # 再等最后一批；若名单还有更多页则继续触发
         last_new = time.time()
-        hard_limit2 = time.time() + 4
+        hard_limit2 = time.time() + 6
         while time.time() < hard_limit2:
-            prev_len = sum(len(v) for v in prefetch.values())
+            prev_len = sum(len(v) for v in prefetch.values()) + len(folders)
             _drain_now()
-            new_len = sum(len(v) for v in prefetch.values())
+            if folder_list_has_more[0]:
+                folder_list_has_more[0] = False
+                try:
+                    page.run_js("var el=document.querySelector('.route-scroll-container');if(el)el.scrollTop=el.scrollHeight+9999;else window.scrollTo(0,document.body.scrollHeight+9999);")
+                except Exception:
+                    pass
+                hard_limit2 = time.time() + 6   # 重置等待窗口
+                last_new = time.time()
+                time.sleep(0.3)
+                continue
+            new_len = sum(len(v) for v in prefetch.values()) + len(folders)
             if new_len > prev_len:
                 last_new = time.time()
             elif time.time() - last_new > 1.5:
                 break
             time.sleep(0.3)
 
-        # 滚回顶部，准备点击 li
+        # 滚回顶部，准备后续点击 li
         try:
             page.run_js("var el=document.querySelector('.route-scroll-container');if(el)el.scrollTop=0;")
             time.sleep(0.3)
         except Exception:
             pass
 
-        try:
-            lis = page.eles(f'css:.{self._LI_CLS}')
-        except Exception:
-            lis = []
-        self._log(f"  加载完毕: {len(lis)} 个 li，{len(prefetch)} 个收藏夹有预取数据")
-        return lis, prefetch
+        self._log(f"  加载完毕: {prev_count} 个 li，{len(folders)} 个收藏夹，{len(prefetch)} 个有预取视频数据")
+        return folders, prefetch
+
 
     def _nav_click_folder(self, page, fid, fname):
         """
-        重新导航到 LIST_URL，找到目标 li 并点击，返回预取数据。
+        切换到目标收藏夹并返回预取数据。
 
-        策略：先尝试找 li，找到立即同步；找不到就滚一步再找，循环直到找到或滚到底。
-        listen 必须在调用前已开启（start）。
+        两种路径：
+        1. 视频列表页（已点击过某个收藏夹进入）：左侧面板是 DIV.yKNs6LhU，
+           直接点击目标 div 切换，不需要重新导航。
+        2. 收藏夹列表页（LIST_URL，或 fallback 导航后）：左侧是 li.W4n61X0W，
+           点击后进入视频列表页。
 
-        返回 prefetch_bodies (list of dict, 可能为 None)。
+        listen 必须在调用前已开启。
         """
         import re as _re
-        prefetch_local = {}
 
+        def _wait_for_click_settle():
+            """点击后短暂等待，让浏览器建立请求，不消耗任何 listen 包。"""
+            time.sleep(0.8)
+
+        def _drain_stale():
+            """排空 listen 缓冲区里点击前残留的旧包，不保存任何数据。"""
+            while True:
+                pkt = page.listen.wait(timeout=0.1)
+                if not pkt:
+                    break
+
+
+        def _try_click_div(scroll_first=True):
+            """在视频列表页左侧面板（DIV.yKNs6LhU）找目标并点击。
+            所有 yKNs6LhU div 已全量在 DOM 中（非懒加载），直接查找后 scrollIntoView。
+            """
+            _drain_stale()
+            target = self._find_folder_item(page, fname, log_sample=True)
+            if target:
+                self._log(f"    找到「{fname}」左侧 div，点击...")
+                try:
+                    page.run_js("""
+var items = document.querySelectorAll('.yKNs6LhU');
+for(var i=0;i<items.length;i++){
+  var t=(items[i].innerText||'').trim().split('\\n')[0].trim();
+  if(t === arguments[0] || arguments[0].indexOf(t) >= 0 || t.indexOf(arguments[0]) >= 0){
+    items[i].scrollIntoView({block:'nearest', behavior:'smooth'});
+    break;
+  }
+}
+""", fname)
+                    time.sleep(0.3)
+                except Exception:
+                    pass
+                target.click()
+                _wait_for_click_settle()  # 等浏览器建立请求
+            """在收藏夹列表页左侧（li.W4n61X0W）找目标并点击。"""
+            if scroll_first:
+                try:
+                    page.run_js("var el=document.querySelector('.route-scroll-container');if(el)el.scrollTop=0;")
+                    time.sleep(0.2)
+                except Exception:
+                    pass
+            _drain_stale()
+            for scroll_i in range(30):
+                target_li = self._find_folder_li(page, fname, log_sample=(scroll_i == 0))
+                if target_li:
+                    self._log(f"    找到「{fname}」li（第{scroll_i}次滚动后），点击...")
+                    target_li.click()
+                    _wait_for_click_settle()  # 等浏览器建立请求
+                    return True
+                try:
+                    r = page.run_js(self._SCROLL_LEFT_JS)
+                except Exception:
+                    break
+                time.sleep(0.3)
+                _drain_stale()
+                parts = str(r).split('/')
+                if len(parts) == 3:
+                    try:
+                        top, sh, ch = int(parts[0]), int(parts[1]), int(parts[2])
+                        if top + ch + 100 >= sh:
+                            break
+                    except Exception:
+                        pass
+            target_li = self._find_folder_li(page, fname, log_sample=True)
+            if target_li:
+                self._log(f"    最终找到「{fname}」li，点击...")
+                target_li.click()
+                _wait_for_click_settle()  # 等浏览器建立请求
+                return True
+            return False
+
+        # ── 路径1：视频列表页，左侧是 DIV.yKNs6LhU ──
+        if self._find_panel_divs(page):
+            if _try_click_div(scroll_first=True):
+                return
+            self._log(f"  左侧 div 未找到「{fname}」，fallback 重新导航 LIST_URL...")
+        # ── 路径2：收藏夹列表页，左侧是 li.W4n61X0W ──
+        elif self._find_panel_lis(page):
+            if _try_click_li(scroll_first=True):
+                return
+            self._log(f"  li 未找到「{fname}」，fallback 重新导航 LIST_URL...")
+        else:
+            self._log(f"  左侧面板未找到（div/li 均无），重新导航 LIST_URL...")
+
+        # ── Fallback：重新导航 LIST_URL 后再用 li 点击 ──
         page.get(self.LIST_URL)
         page.wait.doc_loaded(timeout=30)
-
-        # 等待 SPA 渲染
         deadline = time.time() + 20
         while time.time() < deadline:
-            if page.eles(f'css:.{self._LI_CLS}'):
+            if self._find_panel_lis(page):
                 break
             time.sleep(0.3)
+        try:
+            page.run_js("var el=document.querySelector('.route-scroll-container');if(el)el.scrollTop=0;")
+            time.sleep(0.1)
+        except Exception:
+            pass
 
-        def _drain_prefetch():
-            """非阻塞收取当前缓冲区中属于目标 folder 的预取包"""
-            deadline2 = time.time() + 2.0
-            last_target = 0
-            while time.time() < deadline2:
-                pkt = page.listen.wait(timeout=0.3)
-                if not pkt:
-                    if last_target and time.time() - last_target > 1.0:
-                        break
-                    continue
-                try:
-                    url = pkt.url or ""
-                    b = pkt.response.body
-                    if not isinstance(b, dict):
-                        continue
-                    if "collects/video/list" in url and "aweme_list" in b:
-                        m = _re.search(r'collects_id=(\d+)', url)
-                        if m:
-                            cid = m.group(1)
-                            prefetch_local.setdefault(cid, []).append(b)
-                            if cid == fid:
-                                last_target = time.time()
-                                deadline2 = time.time() + 1.0  # 找到目标包后再等 1s 即可
-                except Exception:
-                    pass
+        if _try_click_li(scroll_first=False):
+            return
 
-        # 收初始预取包
-        _drain_prefetch()
+        self._log(f"  ✗ 未找到「{fname}」（已重新导航仍找不到）")
 
-        # 找目标 li → 找到立即同步；找不到则滚一步再找，循环
-        for scroll_i in range(30):
-            target_li = self._find_folder_li(page, fname)
-            if target_li:
-                pre = prefetch_local.get(fid)
-                self._log(f"    第{scroll_i}次滚动后找到「{fname}」，预取 {len(pre) if pre else 0} 包，点击 li...")
-                target_li.click()
-                time.sleep(0.3)
-                return pre
-
-            # 没找到：滚一步
-            self._log(f"    未找到「{fname}」，滚动第 {scroll_i + 1} 次...")
-            try:
-                r = page.run_js(self._SCROLL_LEFT_JS)
-            except Exception:
-                break
-            time.sleep(1.2)
-            _drain_prefetch()
-
-            # 检查是否已到底
-            parts = str(r).split('/')
-            if len(parts) == 3:
-                try:
-                    top, sh, ch = int(parts[0]), int(parts[1]), int(parts[2])
-                    if top + ch + 100 >= sh:
-                        self._log(f"    已滚到底，仍未找到「{fname}」")
-                        break
-                except Exception:
-                    pass
-
-        # 最后再找一次
-        target_li = self._find_folder_li(page, fname)
-        if target_li:
-            pre = prefetch_local.get(fid)
-            self._log(f"    最终找到「{fname}」，预取 {len(pre) if pre else 0} 包，点击 li...")
-            target_li.click()
-            time.sleep(0.3)
-            return pre
-
-        self._log(f"  ✗ 未找到「{fname}」li（已滚到底）")
-        return prefetch_local.get(fid)
-
-    def _run_video_sync(self, page, folders):
+    def _run_video_sync(self, page, folders=None):  # folders 参数已废弃，内部自行获取最新列表
         """
         全量同步入口：优化版，尽量减少导航次数。
 
         关键设计依据：
         1. verify_2: listen.start() 的 clear() 丢弃 cursor=0 → listen 必须在导航前开启
         2. verify_1/6: 左侧 li 懒加载，scrolling 触发更多 li 及其 cursor=0 预取
-        3. verify_dom (本次验证): 点击 li 后左侧面板消失（count → 0），无法连续点击
+        3. verify_dom: 点击 li 后左侧面板消失（count → 0），无法连续点击同一页面的多个 li
         4. 优化策略：
-           - 一次导航 LIST_URL 收集所有 cursor=0 预取包（prefetch_all）
-           - has_more=False 的收藏夹直接用 prefetch 数据，无需再次导航
-           - has_more=True 的收藏夹：重新导航一次，找 li，点击，收分页包
+           - _load_and_drain 单次导航同时拿到收藏夹名单 + 所有视频 cursor=0 预取
+           - has_more=False 的收藏夹直接用 prefetch 数据，无需任何导航
+           - has_more=True 的收藏夹：_nav_click_folder 优先在视频列表页左侧 DIV.yKNs6LhU
+             点击切换（无需重新导航）；若尚未进入视频列表页则用 li.W4n61X0W 点击进入；
+             均失败时 fallback 重新导航 LIST_URL
            - 默认收藏：单独导航到 listcollection URL
-        5. 预期效果：40 个收藏夹，若大多数 has_more=False，导航次数从 40 降到约 5-10 次
         """
         import re as _re
         import traceback
 
         sync_start = time.time()
 
-        # ── 阶段一：一次性导航，收集所有收藏夹的 cursor=0 预取包 ──────────────────
-        # 先处理默认收藏（单独 URL），再处理自定义收藏夹
-        custom_folders = [f for f in folders if f["id"] != "default"]
-        default_folders = [f for f in folders if f["id"] == "default"]
+        # ── 阶段一：单次导航同时获取收藏夹名单 + 所有视频 cursor=0 预取包 ─────────
+        # 用宽泛关键字同时捕获 collects/list（名单）和 collects/video/list（视频预取）
+        self._log("一次性导航获取收藏夹列表及预取视频数据...")
+        page.listen.start("collects")
+        fetched_folders, prefetch_all = self._load_and_drain(page)
 
-        # 自定义收藏夹：一次导航收全部 cursor=0
-        prefetch_all = {}  # {fid: [body, ...]}
-        if custom_folders:
-            self._log("一次性导航收集所有收藏夹预取数据...")
-            page.listen.start("collects/video/list")
-            _, prefetch_all = self._load_and_drain(page)
-            self._log(f"预取完成：{len(prefetch_all)} 个收藏夹有 cursor=0 数据")
+        if not fetched_folders:
+            self._log("❌ 未获取到收藏夹列表，停止"); return page
+
+        default = {"id": "default", "name": "默认收藏", "count": 0, "cover": ""}
+        fetched_folders_full = fetched_folders + [default]
+        self._log(f"✅ 收藏夹列表：{len(fetched_folders_full)} 个（含默认收藏），{len(prefetch_all)} 个有预取数据")
+        self.folders_loaded.emit(fetched_folders_full)  # 更新 UI 进度条/列表/删除标记
+
+        custom_folders  = fetched_folders           # 不含 default
+        default_folders = [default]
 
         # ── 阶段二：逐一同步 ─────────────────────────────────────────────────────
-        all_synced = list(default_folders) + list(custom_folders)
+        all_synced = list(custom_folders) + list(default_folders)
         folder_stats = []  # [(fname, video_cnt, elapsed_s, skipped)]
 
         for i, f in enumerate(all_synced):
@@ -2015,7 +2375,8 @@ class AllFoldersVideoWorker(QObject):
                     videos = self._sync_one(page, fid, fname, prefetch_bodies=pre if pre else None)
 
                 else:
-                    pre = prefetch_all.get(fid)
+                    # prefetch_all key 由 URL 正则提取，统一用 str 匹配
+                    pre = prefetch_all.get(str(fid)) or prefetch_all.get(fid)
                     pre_has_more = bool(pre and any(b.get("has_more") for b in pre))
 
                     if pre and not pre_has_more:
@@ -2025,12 +2386,14 @@ class AllFoldersVideoWorker(QObject):
                         # 这里数据已完整，直接从 prefetch 提取即可
                         videos = self._extract_from_prefetch(fid, fname, pre)
                     else:
-                        # has_more=True 或无预取：需要导航 + 点击 li 收分页
+                        # has_more=True 或无预取：点击左侧面板切换，触发 cursor=10/20... 分页请求
                         reason = "has_more=True" if pre_has_more else "无预取数据"
-                        self._log(f"    {reason}，重新导航获取分页数据...")
+                        self._log(f"    {reason}，点击 li 切换...")
                         page.listen.start("collects/video/list")
-                        pre = self._nav_click_folder(page, fid, fname)
-                        videos = self._sync_one(page, fid, fname, prefetch_bodies=pre)
+                        self._nav_click_folder(page, fid, fname)
+                        # 阶段一已收到 cursor=0 包，点击后浏览器不会重发 cursor=0，
+                        # 直接把阶段一的 pre 作为第一页，后续 cursor=10/20 由 _sync_one 继续收
+                        videos = self._sync_one(page, fid, fname, prefetch_bodies=pre or None)
 
                 if self._cancelled:
                     self._log(f"  取消「{fname}」"); break
@@ -2074,7 +2437,8 @@ class AllFoldersVideoWorker(QObject):
                                     break
                         else:
                             page.listen.start("collects/video/list")
-                            pre = self._nav_click_folder(page, fid, fname)
+                            self._nav_click_folder(page, fid, fname)
+                            # 浏览器重启后 cursor=0 会重新触发，由 _sync_one 的 collect_next_page 收取
                         videos = self._sync_one(page, fid, fname, prefetch_bodies=pre if pre else None)
                         if self._cancelled:
                             self._log(f"  取消「{fname}」"); break
@@ -2126,19 +2490,15 @@ class AllFoldersVideoWorker(QObject):
         """启动 Chrome 并注入 cookie，返回已登录的 page。"""
         from DrissionPage import ChromiumPage, ChromiumOptions
         subprocess.run(["pkill", "-f", "remote-debugging-port=9334"], capture_output=True)
-        time.sleep(0.8)
+        time.sleep(0.1)
         opts = ChromiumOptions()
-        opts.headless(False)
+        opts.headless(not self.show_browser)
         opts.set_argument("--no-sandbox"); opts.set_argument("--disable-gpu")
         opts.set_user_data_path(os.path.join(os.path.expanduser("~"), ".douyin_drission_profile"))
         opts.set_local_port(9334)
         self._log("正在启动 Chrome...")
         page = ChromiumPage(addr_or_opts=opts)
-        page.get("https://www.douyin.com")
-        page.wait.doc_loaded(timeout=20)
         self._inject(page, self.cookie_str, self._log)
-        page.get("https://www.douyin.com/user/self")
-        page.wait.doc_loaded(timeout=20)
         return page
 
     def run(self):
@@ -2146,12 +2506,7 @@ class AllFoldersVideoWorker(QObject):
         try:
             page = self._make_page()
 
-            if "passport" in page.url or "login" in page.url.lower():
-                self._log("❌ Cookie 已过期，需要重新登录")
-                self.cookie_expired.emit(); return
-
             if self.mode == "list_only":
-                # 只获取收藏夹列表
                 folders = self._fetch_folder_list(page)
                 self._log(f"共 {len(folders)} 个收藏夹（含默认收藏）")
                 self.folders_loaded.emit(folders)
@@ -2161,24 +2516,13 @@ class AllFoldersVideoWorker(QObject):
                     self._log("✅ 收藏夹列表同步完成")
 
             elif self.mode == "videos_only":
-                # 只同步视频，列表由外部传入
-                folders = self.folders or []
-                if not folders:
-                    self._log("❌ 没有收藏夹数据，请先同步收藏夹列表"); return
-                self._log(f"✅ 开始同步 {len(folders)} 个收藏夹视频...")
-                page = self._run_video_sync(page, folders)
+                # _run_video_sync 内部的阶段一会调 _load_and_drain，
+                # 它同时拿到最新收藏夹列表 + 视频预取包，只需一次导航
+                # 传空 folders，让 _run_video_sync 自行获取最新列表
+                page = self._run_video_sync(page, None)
 
             else:  # "all"
-                # 先用 _fetch_folder_list 获取准确的 folder 列表（含 id/name/count）
-                # 注：collects/list API 只返回约 40 个，但实际用户可能有更多（最多 95 个）
-                # 通过 DOM scroll 后的 prefetch，_run_video_sync 会补充缺失的 folder 数据
-                folders = self._fetch_folder_list(page)
-                self._log(f"API 返回 {len(folders)} 个收藏夹（含默认收藏）")
-                self.folders_loaded.emit(folders)
-                if not folders:
-                    self._log("未发现收藏夹，停止"); return
-                self._log(f"✅ 开始同步 {len(folders)} 个收藏夹视频...")
-                page = self._run_video_sync(page, folders)
+                page = self._run_video_sync(page, None)
 
         except ImportError:
             self._log("❌ 缺少 DrissionPage")
@@ -2198,24 +2542,24 @@ class FetchWorker(QObject):
     video_found = pyqtSignal(str, str, dict)
     finished    = pyqtSignal(int)
 
-    def __init__(self, function_type, uid, cookie_str):
+    def __init__(self, function_type, uid, cookie_str, show_browser=False):
         super().__init__()
         self.function_type = function_type
         self.uid = uid; self.cookie_str = cookie_str
+        self.show_browser = show_browser
 
     def run(self):
         total = 0
         try:
             from DrissionPage import ChromiumPage, ChromiumOptions
             subprocess.run(["pkill","-f","remote-debugging-port=9334"], capture_output=True)
-            time.sleep(0.5)
+            time.sleep(0.1)
             opts = ChromiumOptions()
-            opts.headless(False)
+            opts.headless(not self.show_browser)
             opts.set_argument("--no-sandbox"); opts.set_argument("--disable-gpu")
             opts.set_user_data_path(os.path.join(os.path.expanduser("~"),".douyin_drission_profile"))
             opts.set_local_port(9334)
             page = ChromiumPage(addr_or_opts=opts)
-            page.get("https://www.douyin.com"); time.sleep(1)
             cookies = []
             for part in self.cookie_str.split(";"):
                 part = part.strip()
@@ -2259,7 +2603,7 @@ class FetchWorker(QObject):
                         total += 1
                     self.log.emit(f"第 {pn} 页，累计 {total}")
                     if not body.get("has_more",False): break
-                    page.scroll.to_bottom(); time.sleep(2); pn += 1
+                    page.scroll.to_bottom(); pn += 1
                 except Exception as e:
                     self.log.emit(f"解析出错: {e}"); break
             page.listen.stop(); page.quit()
@@ -2282,11 +2626,12 @@ class MySelfVideoWorker(QObject):
         "history": ("history",        "https://www.douyin.com/user/self?showTab=history"),
     }
 
-    def __init__(self, mode, cookie_str, limit=100):
+    def __init__(self, mode, cookie_str, limit=100, show_browser=False):
         super().__init__()
         self.mode = mode
         self.cookie_str = cookie_str
-        self.limit = limit  # 0 = unlimited
+        self.limit = limit
+        self.show_browser = show_browser
         self._paused = False
         self._cancelled = False
 
@@ -2310,6 +2655,13 @@ class MySelfVideoWorker(QObject):
                     cookies.append({"name": n, "value": v, "domain": ".douyin.com", "path": "/"})
         if log_fn:
             log_fn(f"正在注入 {len(cookies)} 个 Cookie...")
+        # 必须先导航到 douyin 域名才能让 set.cookies 生效（空白页注入被浏览器忽略）
+        try:
+            if not page.url or not page.url.startswith("https://"):
+                page.get("https://www.douyin.com/favicon.ico")
+                page.wait.doc_loaded(timeout=10)
+        except Exception:
+            pass
         for ck in cookies:
             try: page.set.cookies(ck)
             except Exception: pass
@@ -2344,14 +2696,13 @@ class MySelfVideoWorker(QObject):
         try:
             from DrissionPage import ChromiumPage, ChromiumOptions
             subprocess.run(["pkill", "-f", "remote-debugging-port=9334"], capture_output=True)
-            time.sleep(0.5)
+            time.sleep(0.1)
             opts = ChromiumOptions()
-            opts.headless(False)
+            opts.headless(not self.show_browser)
             opts.set_argument("--no-sandbox"); opts.set_argument("--disable-gpu")
             opts.set_user_data_path(os.path.join(os.path.expanduser("~"), ".douyin_drission_profile"))
             opts.set_local_port(9334)
             page = ChromiumPage(addr_or_opts=opts)
-            page.get("https://www.douyin.com"); time.sleep(1)
             self._inject(page, self.cookie_str, self.log.emit)
             kw, url = self.MODE_URLS.get(self.mode, ("aweme/post", "https://www.douyin.com/user/self?showTab=post"))
             limit_desc = f"前 {self.limit} 个" if self.limit else "全部"
@@ -2388,7 +2739,7 @@ class MySelfVideoWorker(QObject):
                         self.video_batch.emit(batch); total += len(batch)
                     self.log.emit(f"第 {pn} 页，累计 {total} 个")
                     if not body.get("has_more", False): break
-                    page.scroll.to_bottom(); time.sleep(2); pn += 1
+                    page.scroll.to_bottom(); pn += 1
                 except Exception as e:
                     self.log.emit(f"解析出错: {e}"); break
             try: page.listen.stop(); page.quit()
@@ -2406,9 +2757,10 @@ class UserVideoWorker(QObject):
     video_batch = pyqtSignal(list)
     finished   = pyqtSignal(int)
 
-    def __init__(self, mode, uid, cookie_str):
+    def __init__(self, mode, uid, cookie_str, show_browser=False):
         super().__init__()
         self.mode = mode; self.uid = uid; self.cookie_str = cookie_str
+        self.show_browser = show_browser
 
     @staticmethod
     def _inject(page, cookie_str, log_fn=None):
@@ -2422,6 +2774,13 @@ class UserVideoWorker(QObject):
                     cookies.append({"name": n, "value": v, "domain": ".douyin.com", "path": "/"})
         if log_fn:
             log_fn(f"正在注入 {len(cookies)} 个 Cookie...")
+        # 必须先导航到 douyin 域名才能让 set.cookies 生效（空白页注入被浏览器忽略）
+        try:
+            if not page.url or not page.url.startswith("https://"):
+                page.get("https://www.douyin.com/favicon.ico")
+                page.wait.doc_loaded(timeout=10)
+        except Exception:
+            pass
         for ck in cookies:
             try: page.set.cookies(ck)
             except Exception: pass
@@ -2454,30 +2813,38 @@ class UserVideoWorker(QObject):
         try:
             from DrissionPage import ChromiumPage, ChromiumOptions
             subprocess.run(["pkill", "-f", "remote-debugging-port=9334"], capture_output=True)
-            time.sleep(0.5)
+            time.sleep(0.1)
             opts = ChromiumOptions()
-            opts.headless(False)
+            opts.headless(not self.show_browser)
             opts.set_argument("--no-sandbox"); opts.set_argument("--disable-gpu")
             opts.set_user_data_path(os.path.join(os.path.expanduser("~"), ".douyin_drission_profile"))
             opts.set_local_port(9334)
             page = ChromiumPage(addr_or_opts=opts)
-            page.get("https://www.douyin.com"); time.sleep(1)
             self._inject(page, self.cookie_str, self.log.emit)
 
             kw = "aweme/post" if self.mode == "post" else "aweme/favorite"
             tgt_url = (f"https://www.douyin.com/user/{self.uid}" if self.mode == "post"
                        else f"https://www.douyin.com/user/{self.uid}?showTab=like")
 
-            # ── 第一阶段：导航并捕获用户信息包（给 10 秒）──────────────────
-            self.log.emit(f"正在获取用户信息 UID={self.uid[:20]}...")
-            page.listen.start("user/profile/other")
+            # 一次导航同时捕获用户信息包和视频列表包
+            self.log.emit(f"正在获取用户信息及{'作品' if self.mode == 'post' else '喜欢'}列表...")
+            page.listen.start("aweme")  # 宽关键词：同时匹配 user/profile/other 和 aweme/post/favorite
             page.get(tgt_url)
-            info_pkt = page.listen.wait(timeout=10)
-            if info_pkt:
+
+            got_user_info = False
+            pn = 1
+            while pn <= 300:
+                pkt = page.listen.wait(timeout=20)
+                if not pkt:
+                    self.log.emit("超时，停止"); break
                 try:
-                    b = info_pkt.response.body
-                    if isinstance(b, dict):
-                        u = b.get("user", {})
+                    pkt_url = getattr(pkt, "url", "") or ""
+                    body = pkt.response.body
+                    if not isinstance(body, dict): continue
+
+                    # 用户信息包
+                    if not got_user_info and "user/profile/other" in pkt_url:
+                        u = body.get("user", {})
                         if u:
                             user_info = {
                                 "uid": self.uid,
@@ -2493,24 +2860,11 @@ class UserVideoWorker(QObject):
                             }
                             self.user_info.emit(user_info)
                             self.log.emit(f"用户：{user_info['nickname']}")
-                except Exception as e:
-                    self.log.emit(f"用户信息解析失败: {e}")
-            else:
-                self.log.emit("未捕获到用户信息包（超时），继续获取视频")
-            page.listen.stop()
+                            got_user_info = True
+                        continue
 
-            # ── 第二阶段：重新导航，专门监听视频列表包 ──────────────────────
-            self.log.emit(f"开始获取{'作品' if self.mode == 'post' else '喜欢'}列表...")
-            page.listen.start(kw)
-            page.get(tgt_url)
-            pn = 1
-            while pn <= 300:
-                pkt = page.listen.wait(timeout=20)
-                if not pkt:   # None 或 False 都表示超时/无包
-                    self.log.emit("超时，停止"); break
-                try:
-                    body = pkt.response.body
-                    if not isinstance(body, dict): continue
+                    # 视频列表包
+                    if kw not in pkt_url: continue
                     if body.get("status_code", -1) != 0: break
                     batch = [self._parse_aweme(aw) for aw in body.get("aweme_list", [])]
                     batch = [v for v in batch if v]
@@ -2518,9 +2872,12 @@ class UserVideoWorker(QObject):
                         self.video_batch.emit(batch); total += len(batch)
                     self.log.emit(f"第 {pn} 页，累计 {total} 个")
                     if not body.get("has_more", False): break
-                    page.scroll.to_bottom(); time.sleep(2); pn += 1
+                    page.scroll.to_bottom(); pn += 1
                 except Exception as e:
                     self.log.emit(f"解析出错: {e}"); break
+
+            if not got_user_info:
+                self.log.emit("未捕获到用户信息包（超时）")
             try: page.listen.stop(); page.quit()
             except Exception: pass
         except Exception as e:
@@ -2573,23 +2930,23 @@ class UserInfoWorker(QObject):
     user_info = pyqtSignal(dict)
     finished  = pyqtSignal()
 
-    def __init__(self, uid, cookie_str):
+    def __init__(self, uid, cookie_str, show_browser=False):
         super().__init__()
         self.uid = uid
         self.cookie_str = cookie_str
+        self.show_browser = show_browser
 
     def run(self):
         try:
             from DrissionPage import ChromiumPage, ChromiumOptions
             subprocess.run(["pkill", "-f", "remote-debugging-port=9334"], capture_output=True)
-            time.sleep(0.5)
+            time.sleep(0.1)
             opts = ChromiumOptions()
-            opts.headless(False)
+            opts.headless(not self.show_browser)
             opts.set_argument("--no-sandbox"); opts.set_argument("--disable-gpu")
             opts.set_user_data_path(os.path.join(os.path.expanduser("~"), ".douyin_drission_profile"))
             opts.set_local_port(9334)
             page = ChromiumPage(addr_or_opts=opts)
-            page.get("https://www.douyin.com"); time.sleep(1)
             cookies = []
             for part in self.cookie_str.split(";"):
                 part = part.strip()
@@ -2598,9 +2955,11 @@ class UserInfoWorker(QObject):
                     n = n.strip(); v = v.strip()
                     if n:
                         cookies.append({"name": n, "value": v, "domain": ".douyin.com", "path": "/"})
+            self.log.emit(f"正在注入 {len(cookies)} 个 Cookie...")
             for ck in cookies:
                 try: page.set.cookies(ck)
                 except Exception: pass
+            self.log.emit("✅ Cookie 注入完成")
             self.log.emit(f"正在获取用户信息 UID={self.uid[:20]}...")
             page.listen.start("user/profile/other")
             page.get(f"https://www.douyin.com/user/{self.uid}")
@@ -2999,23 +3358,27 @@ class ShareLinkParser(QObject):
         try:
             from DrissionPage import ChromiumPage, ChromiumOptions
             subprocess.run(["pkill", "-f", "remote-debugging-port=9334"], capture_output=True)
-            time.sleep(0.5)
+            time.sleep(0.1)
             opts = ChromiumOptions()
-            opts.headless(False)
+            opts.headless(not self.show_browser)
             opts.set_argument("--no-sandbox"); opts.set_argument("--disable-gpu")
             opts.set_user_data_path(os.path.join(os.path.expanduser("~"), ".douyin_drission_profile"))
             opts.set_local_port(9334)
             page = ChromiumPage(addr_or_opts=opts)
-            page.get("https://www.douyin.com"); time.sleep(1)
             if self.cookie_str:
+                ck_count = 0
                 for part in self.cookie_str.split(";"):
                     part = part.strip()
                     if "=" in part:
                         n, _, v = part.partition("=")
                         if n.strip():
-                            try: page.set.cookies({"name": n.strip(), "value": v.strip(),
-                                                   "domain": ".douyin.com", "path": "/"})
+                            try:
+                                page.set.cookies({"name": n.strip(), "value": v.strip(),
+                                                  "domain": ".douyin.com", "path": "/"})
+                                ck_count += 1
                             except Exception: pass
+                self.log.emit(f"正在注入 {ck_count} 个 Cookie...")
+                self.log.emit("✅ Cookie 注入完成")
             self.log.emit("浏览器获取下载链接中...")
             # 监听 feed 或 detail 接口
             for kw in ("aweme/v1/feed", "aweme/detail", "aweme/post"):
@@ -3174,15 +3537,16 @@ class DlBtn(QPushButton):
 # 设置对话框
 # ═════════════════════════════════════════════════════════════════════════════
 class SettingsDialog(QDialog):
-    theme_changed      = pyqtSignal(str)
-    concurrent_changed = pyqtSignal(int)
-    sync_limits_changed = pyqtSignal(int, int)  # post, like
+    theme_changed        = pyqtSignal(str)
+    concurrent_changed   = pyqtSignal(int)
+    sync_limits_changed  = pyqtSignal(int, int)  # post, like
+    show_browser_changed = pyqtSignal(bool)
 
     def __init__(self, current_theme, current_concurrent,
-                 post_limit, like_limit, parent=None):
+                 post_limit, like_limit, show_browser=False, parent=None):
         super().__init__(parent)
         self.setWindowTitle("设置")
-        self.setFixedSize(460, 440)
+        self.setFixedSize(460, 470)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
 
         lay = QVBoxLayout(self)
@@ -3227,6 +3591,13 @@ class SettingsDialog(QDialog):
         hint_conc = QLabel("并发数越多，网络占用越高（建议 3）")
         hint_conc.setStyleSheet("color:#888;font-size:9pt;")
         gen_lay.addWidget(hint_conc)
+
+        self._show_browser_chk = QCheckBox("自动化爬取时显示浏览器窗口")
+        self._show_browser_chk.setChecked(show_browser)
+        self._show_browser_chk.setToolTip(
+            "勾选后爬取时可见 Chrome 窗口（方便调试）；\n"
+            "不勾选则以无头模式运行，速度更快、不干扰使用。")
+        gen_lay.addWidget(self._show_browser_chk)
 
         lay.addWidget(gen_box)
 
@@ -3297,6 +3668,7 @@ class SettingsDialog(QDialog):
             self._post_spin.value(),
             self._like_spin.value(),
         )
+        self.show_browser_changed.emit(self._show_browser_chk.isChecked())
         self.accept()
 
     def reject(self):
@@ -3442,16 +3814,18 @@ class MainWindow(QMainWindow):
         self.top_tabs.setCurrentIndex(0)
 
     def _open_settings(self):
-        post_limit    = self._app_settings.get("post_sync_limit", 50)
-        like_limit    = self._app_settings.get("like_sync_limit", 100)
+        post_limit   = self._app_settings.get("post_sync_limit", 50)
+        like_limit   = self._app_settings.get("like_sync_limit", 100)
+        show_browser = self._app_settings.get("show_browser", False)
         dlg = SettingsDialog(self._current_theme, self.dl_mgr.max_concurrent,
-                             post_limit, like_limit, self)
+                             post_limit, like_limit, show_browser, self)
         orig_theme = self._current_theme
         dlg.rejected.connect(lambda: QApplication.instance().setStyleSheet(
             THEMES.get(orig_theme, STYLE)))
         dlg.theme_changed.connect(self._apply_theme)
         dlg.concurrent_changed.connect(self._apply_concurrent)
         dlg.sync_limits_changed.connect(self._apply_sync_limits)
+        dlg.show_browser_changed.connect(self._apply_show_browser)
         dlg.exec_()
 
     def _apply_theme(self, name):
@@ -3507,6 +3881,10 @@ class MainWindow(QMainWindow):
                 spin = md.get("limit_spin")
                 if spin and not spin.hasFocus():
                     spin.setValue(val)
+
+    def _apply_show_browser(self, val: bool):
+        self._app_settings["show_browser"] = val
+        _save_app_settings(self._app_settings)
 
     # ══════════════════════════════════════════════════════════════════
     # Tab 0: 我的收藏
@@ -3623,6 +4001,7 @@ class MainWindow(QMainWindow):
         self._folder_completer.setCompletionMode(QCompleter.UnfilteredPopupCompletion)
         self._folder_completer.setMaxVisibleItems(5)
         self.folder_search.setCompleter(self._folder_completer)
+        self._search_display_to_fid = {}  # display_name → fid，用于重名时精确跳转
         # 初始 popup 样式（主题色在 _apply_theme 里同步更新）
         from PyQt5.QtGui import QFont
         pop_font = QFont(); pop_font.setPointSize(13)
@@ -3798,7 +4177,8 @@ class MainWindow(QMainWindow):
         self.folder_list.clear()
 
         defaults  = [f for f in self._folders_meta if f["id"] == "default"]
-        customs   = [f for f in self._folders_meta if f["id"] != "default"]
+        active    = [f for f in self._folders_meta if f["id"] != "default" and not f.get("deleted")]
+        deleted   = [f for f in self._folders_meta if f["id"] != "default" and f.get("deleted")]
         sel_row   = None
 
         def _add_header(text):
@@ -3819,6 +4199,8 @@ class MainWindow(QMainWindow):
             item.setSizeHint(QSize(0, 96 if is_def else 76))
             if is_def:
                 item.setBackground(QColor("#2a3a28"))  # 深绿底色凸显默认收藏
+            elif f.get("deleted"):
+                item.setBackground(QColor("#2a1f1f"))  # 深红底色标记已删除
             self.folder_list.addItem(item)
             # 用缓存文件里的实际视频数作为权威来源，避免 count 字段与实际不符
             cache = load_folder_cache(f["id"])
@@ -3833,14 +4215,19 @@ class MainWindow(QMainWindow):
 
         if defaults:
             _add_folder(defaults[0])
-        if customs:
+        if active:
             _add_header("  我的收藏夹")
-            for f in customs:
+            for f in active:
+                _add_folder(f)
+        if deleted:
+            _add_header("  已删除收藏夹")
+            for f in deleted:
                 _add_folder(f)
 
         if sel_row is not None:
             self.folder_list.setCurrentRow(sel_row)
-        self.folder_cnt_lbl.setText(f"{len(self._folders_meta)}个")
+        active_cnt = len(defaults) + len(active)
+        self.folder_cnt_lbl.setText(f"{active_cnt}个" + (f"（+{len(deleted)}已删除）" if deleted else ""))
         self.folder_list.blockSignals(False)
         self._update_folder_item_colors()
 
@@ -3866,11 +4253,13 @@ class MainWindow(QMainWindow):
         self.sync_pause_btn.setText("⏸ 暂停"); self.sync_pause_btn.setVisible(True)
         self.sync_cancel_btn.setVisible(True)
         self._afv_thread = QThread()
-        self._afv_worker = AllFoldersVideoWorker(self._cookie_str, mode="list_only")
+        self._afv_worker = AllFoldersVideoWorker(self._cookie_str, mode="list_only",
+                                                   show_browser=self._app_settings.get("show_browser", False))
         self._afv_worker.moveToThread(self._afv_thread)
         self._afv_worker.log.connect(self._glog)
         self._afv_worker.folders_loaded.connect(self._on_folders_loaded)
         self._afv_worker.cookie_expired.connect(self._on_cookie_expired)
+        self._afv_worker.verification_needed.connect(self._on_verification_needed)
         self._afv_worker.finished.connect(self._on_afv_finished)
         self._afv_thread.started.connect(self._afv_worker.run)
         self._afv_done_count = 0
@@ -3888,21 +4277,22 @@ class MainWindow(QMainWindow):
         self.sync_videos_btn.setEnabled(False)
         self._glog("▶ 开始同步所有收藏夹视频")
         total = len(self._folders_meta)
-        self._glog(f"⏳ 准备同步 {total} 个收藏夹视频...")
-        self.sync_progress_bar.setValue(0); self.sync_progress_bar.setMaximum(total)
-        self.sync_progress_bar.setFormat(f"%v/{total} 个收藏夹")
+        self._glog(f"⏳ 先重新获取最新收藏夹列表（当前缓存 {total} 个），再开始视频同步...")
+        self.sync_progress_bar.setValue(0); self.sync_progress_bar.setMaximum(max(total, 1))
+        self.sync_progress_bar.setFormat("正在更新收藏夹列表...")
         self.sync_progress_bar.setVisible(True)
         self.sync_pause_btn.setText("⏸ 暂停"); self.sync_pause_btn.setVisible(True)
         self.sync_cancel_btn.setVisible(True)
         self._afv_thread = QThread()
-        _customs = [f for f in self._folders_meta if f["id"] != "default"]
-        _default = [f for f in self._folders_meta if f["id"] == "default"]
         self._afv_worker = AllFoldersVideoWorker(
-            self._cookie_str, mode="videos_only", folders=_customs + _default)
+            self._cookie_str, mode="videos_only", folders=None,
+            show_browser=self._app_settings.get("show_browser", False))
         self._afv_worker.moveToThread(self._afv_thread)
         self._afv_worker.log.connect(self._glog)
+        self._afv_worker.folders_loaded.connect(self._on_folders_loaded)
         self._afv_worker.folder_done.connect(self._on_afv_folder_done)
         self._afv_worker.cookie_expired.connect(self._on_cookie_expired)
+        self._afv_worker.verification_needed.connect(self._on_verification_needed)
         self._afv_worker.finished.connect(self._on_afv_finished)
         self._afv_thread.started.connect(self._afv_worker.run)
         self._afv_done_count = 0
@@ -3929,6 +4319,7 @@ class MainWindow(QMainWindow):
 
     def _on_folders_loaded(self, folders):
         existing = {f["id"]: f for f in self._folders_meta}
+        new_ids = {f["id"] for f in folders}
         for f in folders:
             ex = existing.get(f["id"], {})
             merged = {**ex, **f}
@@ -3937,19 +4328,32 @@ class MainWindow(QMainWindow):
                 merged["count"] = ex["count"]
             if ex.get("synced_at"):
                 merged["synced_at"] = ex["synced_at"]
+            merged.pop("deleted", None)   # 重新出现则清除已删除标记
             existing[f["id"]] = merged
+        # 标记在本地存在但 API 不再返回的收藏夹为已删除
+        deleted_cnt = 0
+        for fid, f in existing.items():
+            if fid not in new_ids and fid != "default":
+                if not f.get("deleted"):
+                    f["deleted"] = True
+                    self._glog(f"⚠ 收藏夹「{f.get('name', fid)}」在账号中已不存在，标记为已删除")
+                    deleted_cnt += 1
+        if deleted_cnt:
+            self._glog(f"⚠ 共 {deleted_cnt} 个收藏夹已从账号中删除")
         customs = [f for f in existing.values() if f["id"] != "default"]
         default = [f for f in existing.values() if f["id"] == "default"]
         self._folders_meta = customs + default
-        self._afv_total = len(self._folders_meta)
+        active_cnt = sum(1 for f in self._folders_meta if not f.get("deleted"))
+        self._afv_total = active_cnt   # 进度条只计算未删除的
         save_folder_index(self._folders_meta)
         self._refresh_folder_list()
-        self.sync_progress_bar.setMaximum(self._afv_total)
+        self.sync_progress_bar.setMaximum(max(self._afv_total, 1))
         self.sync_progress_bar.setValue(0)
         self.sync_progress_bar.setFormat(f"%v/{self._afv_total} 个收藏夹")
         self._glog(f"✅ 发现 {len(folders)} 个收藏夹")
-        # list_only 模式：收藏夹列表同步完成，启用「同步所有视频」
-        self.sync_videos_btn.setEnabled(bool(self._folders_meta))
+        # 仅 list_only 模式结束时才重新启用按钮；videos_only 模式正在继续同步视频
+        if not (self._afv_worker and self._afv_worker.mode == "videos_only"):
+            self.sync_videos_btn.setEnabled(bool(self._folders_meta))
 
     def _on_afv_folder_done(self, fid, fname, videos):
         save_folder_cache(fid, fname, videos)
@@ -3980,47 +4384,130 @@ class MainWindow(QMainWindow):
         self._update_fav_sync_time()
 
     # ── 收藏夹搜索 ───────────────────────────────────────────────────
+    def _get_item_name(self, item):
+        """从 QListWidgetItem 取收藏夹名称，header item 返回 None。"""
+        if not item:
+            return None
+        if item.data(Qt.UserRole) == "__header__":
+            return None
+        w = self.folder_list.itemWidget(item)
+        lbl = getattr(w, "name_lbl", None)
+        return lbl.text() if lbl else None
+
     def _on_folder_search_changed(self, text):
-        """输入时动态更新 completer 候选列表（匹配数 ≤ 5 才弹）。"""
+        """实时过滤列表：显示匹配项，隐藏不匹配项；清空时恢复全部。"""
         q = text.strip().lower()
-        if not q:
-            self._folder_completer_model.setStringList([])
-            return
-        matches = []
+        self.folder_list.blockSignals(True)
+
+        # 收集匹配项用于 completer，重名时加 (2)(3)... 区分
+        display_name_count = {}   # name → count so far
+        match_display_to_fid = {}  # display_name → fid（最后一个同名的 fid，不影响唯一名）
+
+        # 先做 show/hide 过滤
         for i in range(self.folder_list.count()):
             item = self.folder_list.item(i)
-            if not item or item.isHidden(): continue
+            if not item:
+                continue
             fid = item.data(Qt.UserRole)
-            if fid == "__header__": continue
-            w = self.folder_list.itemWidget(item)
-            name = getattr(w, "name_lbl", None)
-            name = name.text() if name else item.text()
-            if q in name.lower():
-                matches.append(name)
-        # 只在匹配数 ≤ 5 时弹出下拉
-        if 1 <= len(matches) <= 5:
-            self._folder_completer_model.setStringList(matches)
+            if fid == "__header__":
+                item.setHidden(True)
+                continue
+            if not q:
+                item.setHidden(False)
+                continue
+            name = self._get_item_name(item) or ""
+            hit = q in name.lower()
+            item.setHidden(not hit)
+            if hit:
+                display_name_count[name] = display_name_count.get(name, 0) + 1
+                cnt = display_name_count[name]
+                display = name if cnt == 1 else f"{name} ({cnt})"
+                match_display_to_fid[display] = fid
+
+        if q:
+            # 让有可见子项的 header 显示出来
+            i = 0
+            while i < self.folder_list.count():
+                item = self.folder_list.item(i)
+                if item and item.data(Qt.UserRole) == "__header__":
+                    has_visible = False
+                    j = i + 1
+                    while j < self.folder_list.count():
+                        next_item = self.folder_list.item(j)
+                        if not next_item:
+                            j += 1
+                            continue
+                        if next_item.data(Qt.UserRole) == "__header__":
+                            break
+                        if not next_item.isHidden():
+                            has_visible = True
+                            break
+                        j += 1
+                    item.setHidden(not has_visible)
+                i += 1
+        else:
+            for i in range(self.folder_list.count()):
+                item = self.folder_list.item(i)
+                if item:
+                    item.setHidden(False)
+
+        self.folder_list.blockSignals(False)
+
+        # 更新 completer，但同名第一个不加后缀时需要回填正确映射
+        # 重建：重名的第一个也需要加 (1) 以便区分
+        if q and display_name_count:
+            # 对于有重名的 name，第一个也需要加 (1)
+            has_dup = {n for n, c in display_name_count.items() if c > 1}
+            final_displays = []
+            dup_counters = {}
+            for i in range(self.folder_list.count()):
+                item = self.folder_list.item(i)
+                if not item or item.isHidden():
+                    continue
+                fid = item.data(Qt.UserRole)
+                if fid == "__header__":
+                    continue
+                name = self._get_item_name(item) or ""
+                if q not in name.lower():
+                    continue
+                if name in has_dup:
+                    dup_counters[name] = dup_counters.get(name, 0) + 1
+                    display = f"{name} ({dup_counters[name]})"
+                else:
+                    display = name
+                final_displays.append(display)
+                self._search_display_to_fid[display] = fid
+            self._folder_completer_model.setStringList(final_displays)
         else:
             self._folder_completer_model.setStringList([])
 
-    def _on_folder_search_activated(self, name):
-        """用户从下拉中选中一个名称，定位到该收藏夹并清空搜索框。"""
+    def _on_folder_search_activated(self, display_name):
+        """用户从下拉中选中一个条目，按 fid 定位到对应收藏夹。"""
+        fid = getattr(self, '_search_display_to_fid', {}).get(display_name)
+        found = False
         for i in range(self.folder_list.count()):
             item = self.folder_list.item(i)
-            if not item: continue
-            fid = item.data(Qt.UserRole)
-            if fid == "__header__": continue
-            w = self.folder_list.itemWidget(item)
-            lbl = getattr(w, "name_lbl", None)
-            item_name = lbl.text() if lbl else item.text()
-            if item_name == name:
-                self.folder_list.scrollToItem(item, QAbstractItemView.PositionAtCenter)
-                self.folder_list.setCurrentItem(item)
-                break
-        # 清空搜索框，不触发再次搜索，并把焦点移到列表让光标消失
+            if not item:
+                continue
+            if fid:
+                if item.data(Qt.UserRole) == fid:
+                    self.folder_list.scrollToItem(item, QAbstractItemView.PositionAtCenter)
+                    self.folder_list.setCurrentItem(item)
+                    found = True
+                    break
+            else:
+                # 兜底：按名称匹配（无重名情况）
+                item_name = self._get_item_name(item)
+                if item_name == display_name:
+                    self.folder_list.scrollToItem(item, QAbstractItemView.PositionAtCenter)
+                    self.folder_list.setCurrentItem(item)
+                    found = True
+                    break
+        # 清空搜索框并恢复完整列表
         self.folder_search.blockSignals(True)
         self.folder_search.clear()
         self.folder_search.blockSignals(False)
+        self._on_folder_search_changed("")
         self.folder_list.setFocus()
 
     # ── 选中收藏夹 → 加载视频网格 ───────────────────────────────────
@@ -4144,7 +4631,8 @@ class MainWindow(QMainWindow):
         self.resync_btn.setEnabled(False)
         self._glog(f"▶ 开始同步收藏夹「{fname}」视频")
         self._fv_thread = QThread()
-        self._fv_worker = FolderVideoWorker(self._cookie_str, fid, fname)
+        self._fv_worker = FolderVideoWorker(self._cookie_str, fid, fname,
+                                             show_browser=self._app_settings.get("show_browser", False))
         self._fv_worker.moveToThread(self._fv_thread)
         self._fv_worker.log.connect(self._glog)
         self._fv_worker.progress.connect(lambda n: self._glog(f"⏳ 已抓取 {n} 个视频..."))
@@ -4625,7 +5113,8 @@ class MainWindow(QMainWindow):
             if item.widget(): item.widget().deleteLater()
         self._self_cards[mode].clear(); self._self_selected[mode].clear()
         thread = QThread()
-        worker = MySelfVideoWorker(mode, self._cookie_str, limit=limit)
+        worker = MySelfVideoWorker(mode, self._cookie_str, limit=limit,
+                                   show_browser=self._app_settings.get("show_browser", False))
         worker.moveToThread(thread)
         # 加入全局集合防止 Python GC 在线程结束前销毁对象
         _active_loaders.add(thread); _active_loaders.add(worker)
@@ -4757,7 +5246,8 @@ class MainWindow(QMainWindow):
         self.uv_add_btn.setEnabled(False)
         self.uv_prog.setVisible(True); self.uv_prog.setRange(0,0)
         self._uv_thread = QThread()
-        self._uv_worker = FetchWorker(ft, uid, self._cookie_str)
+        self._uv_worker = FetchWorker(ft, uid, self._cookie_str,
+                                      show_browser=self._app_settings.get("show_browser", False))
         self._uv_worker.moveToThread(self._uv_thread)
         self._uv_worker.log.connect(self.uv_log.append)
         self._uv_worker.log.connect(lambda m: self.uv_status.setText(m[:100]))
@@ -5144,7 +5634,8 @@ class MainWindow(QMainWindow):
         self.disc_refresh_info_btn.setEnabled(False)
         self._glog(f"▶ 开始同步用户「{uid}」视频作品")
         thread = QThread()
-        worker = UserVideoWorker(mode, uid, self._cookie_str)
+        worker = UserVideoWorker(mode, uid, self._cookie_str,
+                                 show_browser=self._app_settings.get("show_browser", False))
         worker.moveToThread(thread)
         # 加入全局集合防止 Python GC 在线程结束前销毁对象
         _active_loaders.add(thread); _active_loaders.add(worker)
@@ -5221,7 +5712,8 @@ class MainWindow(QMainWindow):
         self.disc_refresh_info_btn.setText("获取中...")
         self._glog(f"▶ 正在刷新用户信息 UID={uid[:20]}...")
         thread = QThread()
-        worker = UserInfoWorker(uid, self._cookie_str)
+        worker = UserInfoWorker(uid, self._cookie_str,
+                                show_browser=self._app_settings.get("show_browser", False))
         worker.moveToThread(thread)
         _active_loaders.add(thread); _active_loaders.add(worker)
         thread.finished.connect(lambda t=thread, w=worker: (
@@ -6197,6 +6689,39 @@ class MainWindow(QMainWindow):
         QMessageBox.warning(self,"Cookie 已过期",
             "Cookie 已失效，请重新登录后再同步。\n点击「② 重新设置 Cookie」。")
         self.open_cookie_dialog()
+
+    def _on_verification_needed(self):
+        """检测到人机验证时：若浏览器为无头模式，提示用户开启「显示浏览器」后恢复；
+        若已显示浏览器，提示用户在浏览器中完成验证后点击继续。"""
+        w = self._afv_worker
+        is_headless = not self._app_settings.get("show_browser", False)
+        self._glog("⚠️ 检测到人机验证（滑块/验证码），同步已暂停")
+        if is_headless:
+            ret = QMessageBox.warning(
+                self, "检测到人机验证",
+                "同步过程中触发了抖音人机验证（滑块/验证码）。\n\n"
+                "当前浏览器运行在后台（无界面）模式，无法手动完成验证。\n\n"
+                "建议：\n"
+                "① 在「设置」中勾选「同步时显示浏览器窗口」\n"
+                "② 取消本次同步，重新开始\n\n"
+                "是否立即取消同步？",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
+            if ret == QMessageBox.Yes:
+                if w: w.cancel()
+            else:
+                if w: w.resume()
+        else:
+            QMessageBox.information(
+                self, "检测到人机验证",
+                "同步过程中触发了抖音人机验证（滑块/验证码）。\n\n"
+                "请在已打开的浏览器窗口中手动完成验证，\n"
+                "完成后点击「确定」继续同步。"
+            )
+            if w: w.resume()
+
+
 
     @staticmethod
     def _extract_uid(text):

@@ -15,10 +15,13 @@
 
 ### 📁 My Favorites
 - Browse collections by folder with thumbnail previews and video duration labels
+- Folder list shows **cover thumbnails**; left panel is **collapsible** to maximize the video grid
 - **Drag-and-drop** to reorder your favorite folders freely
 - Real-time **search bar** with auto-complete to filter folders instantly
+- **Video search** inside each folder to filter cards by title in real time
 - One-click sync: refresh folder list / fetch video metadata / download entire folder
-- Clear local cache to force a full re-fetch; multi-select and batch download
+- Clear local cache to force a full re-fetch; multi-select, batch download, and **Export Links** to `.txt`
+- Video card context menu: Copy Link / Open File / Remove
 
 ### 🎬 My Posts / My Likes
 - Automatically syncs all videos you have published or liked after login
@@ -26,22 +29,30 @@
 
 ### 🔍 Discover Users
 - Enter a UID (`MS4wLjABAAAAxxx`) or profile URL to look up any user
-- Displays nickname, follower count, and total video count
+- User info card displays avatar (circle crop), nickname, follower count, and total video count
 - User list is persisted locally — no need to re-search on next launch
 - Select all / batch download from any user's video grid
 
 ### 🔗 Parse Share Links
 - Paste Douyin App share text (containing a `v.douyin.com` short link) to extract the direct download URL automatically
+- **Clipboard auto-detection**: the Parse tab reads the clipboard on focus and pre-fills the input if a Douyin link is detected
 - **History** of parsed links is retained across sessions; one-click preview or add to queue
 - Clear list at any time
 
 ### ⬇️ Download Center
 - Unified task manager for all sources: Favorites / Posts / Likes / Discover / Parse
+- **Live stats bar**: total tasks / completed / in-progress counts at a glance
 - **Title search** bar to filter the task list instantly
+- **Colored source badges**: Favorites (blue) / Posts (green) / Likes (pink) / Discover (purple) / Parse (orange)
 - Columns: title, author, progress, file size, source, date added
 - Global controls: Start All / Pause All / Clear / Delete Selected
 - Per-task controls: Download / Pause / Resume / Cancel with **resume-on-pause** support
+- Double-click a completed row to open the local file directly
 - Custom download directory; click "Open" to reveal the folder in your file manager
+
+### 🔔 Notifications
+- **Toast messages**: non-blocking floating tips (bottom-right, fade animation) for operation feedback
+- **macOS system notification** on download completion (can be toggled in Settings)
 
 ### 📋 Global Log Panel
 - Real-time timestamped log at the bottom of the window shows every step of the sync process — Cookie injection, page scrolling, video count, and completion status
@@ -52,6 +63,7 @@
 - **Themes**: Dark (default) / Midnight Blue / Minimal Green / Warm Sand — live preview on selection
 - Maximum concurrent downloads (1–10, recommended: 3)
 - Sync limits for My Posts and My Likes
+- Toggle download-complete system notifications
 
 ---
 
@@ -174,6 +186,14 @@ requests multi-threaded download  (watermark parameter stripped automatically)
 ---
 
 ## 📜 Changelog
+
+### v1.1.0
+- **Favorites**: folder list now shows cover thumbnails; left panel collapsible to icon-only mode; added per-folder video search; batch export selected URLs to `.txt`; video card context menu adds "Copy Link"
+- **Discover**: user info card avatar rendered as circle crop
+- **Parse tab**: auto-detects Douyin links in clipboard and pre-fills input on focus
+- **Download Center**: live stats bar (total / completed / in-progress); colored source badges per origin; double-click completed row to open local file
+- **Notifications**: global toast messages for operation feedback; macOS system notification on download completion (toggleable in Settings)
+- Settings: added download-complete notification toggle
 
 ### v1.0.0
 - DrissionPage engine — intercepts Chrome network requests to obtain real, watermark-free download URLs
