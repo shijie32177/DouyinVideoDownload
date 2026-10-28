@@ -20,7 +20,7 @@
 - One-click sync: refresh folder list / fetch video metadata / download entire folder
 - Clear local cache to force a full re-fetch; multi-select and batch download
 - Deleted folders are visually marked (greyed name + red badge) rather than silently disappearing
-- Video card context menu: Open File / Remove from list
+- Video card context menu: Copy Cover URL / Copy Video URL / Open File / Remove from list
 
 ### 🎬 My Posts / My Likes
 - Automatically syncs all videos you have published or liked after login
