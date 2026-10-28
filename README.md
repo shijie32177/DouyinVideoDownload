@@ -54,7 +54,10 @@
 - **Toast messages**: non-blocking floating tips (bottom-right, fade animation) for operation feedback
 - **macOS system notification** on download completion (can be toggled in Settings)
 
-### 📋 Global Log Panel
+### 🛡️ Reliability
+- **CAPTCHA detection**: automatically detects slider verification during sync and pauses with a prompt — show the browser window and solve it manually to continue
+- **Cookie expiry detection**: detects login redirect mid-sync and prompts you to re-login immediately
+- **Deleted folder badge**: folders removed from Douyin are marked visually in the list rather than silently disappearing
 - Real-time timestamped log at the bottom of the window shows every step of the sync process — Cookie injection, page scrolling, video count, and completion status
 - Click the **collapse / expand** arrow on the splitter handle to hide the log without losing content space
 - Log auto-collapses when switching between tabs
@@ -64,6 +67,7 @@
 - Maximum concurrent downloads (1–10, recommended: 3)
 - Sync limits for My Posts and My Likes
 - Toggle download-complete system notifications
+- **Show browser window during sync** — reveal the Chrome window while scraping (useful for solving CAPTCHAs manually; hidden by default for speed)
 
 ---
 
@@ -188,12 +192,13 @@ requests multi-threaded download  (watermark parameter stripped automatically)
 ## 📜 Changelog
 
 ### v1.1.0
-- **Favorites**: folder list now shows cover thumbnails; left panel collapsible to icon-only mode; added per-folder video search; batch export selected URLs to `.txt`; video card context menu adds "Copy Link"
+- **Favorites**: folder list now shows cover thumbnails; left panel collapsible to icon-only mode; added per-folder video search; batch export selected URLs to `.txt`; video card context menu adds "Copy Link"; deleted folders are visually marked in the list
 - **Discover**: user info card avatar rendered as circle crop
 - **Parse tab**: auto-detects Douyin links in clipboard and pre-fills input on focus
 - **Download Center**: live stats bar (total / completed / in-progress); colored source badges per origin; double-click completed row to open local file
 - **Notifications**: global toast messages for operation feedback; macOS system notification on download completion (toggleable in Settings)
-- Settings: added download-complete notification toggle
+- **Reliability**: CAPTCHA detection pauses sync and prompts for manual solving; Cookie expiry detection triggers immediate re-login prompt
+- **Settings**: show/hide browser window during sync; download-complete notification toggle
 
 ### v1.0.0
 - DrissionPage engine — intercepts Chrome network requests to obtain real, watermark-free download URLs
