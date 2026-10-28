@@ -735,6 +735,16 @@ class VideoCard(QFrame):
         if self._dl_status and self._dl_status not in ("已下载", ""):
             del_act = menu.addAction("从下载列表删除")
             del_act.triggered.connect(lambda: self.remove_from_dl_requested.emit(aid))
+        cover_url = self.video_meta.get("cover_url", "")
+        video_url = self.video_meta.get("url", "")
+        if cover_url or video_url:
+            menu.addSeparator()
+        if cover_url:
+            cp_cover = menu.addAction("复制封面链接")
+            cp_cover.triggered.connect(lambda: QApplication.clipboard().setText(cover_url))
+        if video_url:
+            cp_video = menu.addAction("复制视频链接")
+            cp_video.triggered.connect(lambda: QApplication.clipboard().setText(video_url))
         if not menu.actions():
             no_act = menu.addAction("暂无操作")
             no_act.setEnabled(False)
@@ -3255,6 +3265,24 @@ class ParseHistoryCard(QFrame):
         del_act = menu.addAction("删除记录")
         del_act.triggered.connect(
             lambda: self.delete_requested.emit(self.record.get("aweme_id", "")))
+        menu.addSeparator()
+        local_path = getattr(self, "_local_path", "") or ""
+        if local_path and os.path.exists(local_path):
+            dir_act = menu.addAction("打开视频文件目录")
+            _dp = os.path.dirname(local_path)
+            dir_act.triggered.connect(lambda: subprocess.Popen(["open", _dp]))
+        cover_url = self.record.get("cover_url", "")
+        video_url = self.record.get("url", "")
+        if cover_url:
+            cp_cover = menu.addAction("复制封面链接")
+            cp_cover.triggered.connect(lambda: QApplication.clipboard().setText(cover_url))
+        if video_url:
+            cp_video = menu.addAction("复制视频链接")
+            cp_video.triggered.connect(lambda: QApplication.clipboard().setText(video_url))
+        raw_content = self.record.get("raw_content", "") or self.record.get("share_text", "") or self.record.get("aweme_id", "")
+        if raw_content:
+            cp_raw = menu.addAction("复制解析前内容")
+            cp_raw.triggered.connect(lambda: QApplication.clipboard().setText(raw_content))
         menu.exec_(self.menu_lbl.mapToGlobal(self.menu_lbl.rect().bottomLeft()))
 
 
@@ -5948,6 +5976,7 @@ class MainWindow(QMainWindow):
         text = self.parse_input.toPlainText().strip()
         if not text:
             self.parse_status_lbl.setText("请先粘贴分享内容"); return
+        self._last_parse_input = text
         if getattr(self, "_parse_thread", None) and self._parse_thread.isRunning():
             return
         self.parse_btn.setEnabled(False)
@@ -5994,12 +6023,13 @@ class MainWindow(QMainWindow):
         # 去重：先移除同 aweme_id 的旧记录
         records = [r for r in records if r.get("aweme_id") != meta.get("aweme_id")]
         record = {
-            "aweme_id":  meta.get("aweme_id", ""),
-            "title":     meta.get("title", ""),
-            "author":    meta.get("author", ""),
-            "cover_url": meta.get("cover_url", ""),
-            "url":       meta.get("url", ""),
-            "parsed_at": time.time(),
+            "aweme_id":    meta.get("aweme_id", ""),
+            "title":       meta.get("title", ""),
+            "author":      meta.get("author", ""),
+            "cover_url":   meta.get("cover_url", ""),
+            "url":         meta.get("url", ""),
+            "parsed_at":   time.time(),
+            "raw_content": getattr(self, "_last_parse_input", ""),
         }
         records.append(record)
         save_parse_history(records)
@@ -6095,9 +6125,28 @@ class MainWindow(QMainWindow):
         self.dl_table.setSortingEnabled(False)
         self._dl_time_desc = True  # 当前排序方向：True=倒序（新→旧）
         self.dl_table.horizontalHeader().sectionClicked.connect(self._dl_header_clicked)
+        self.dl_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.dl_table.customContextMenuRequested.connect(self._dl_context_menu)
         lay.addWidget(self.dl_table)
 
     # ── 下载记录持久化恢复 ───────────────────────────────────────────
+
+    def _dl_context_menu(self, pos):
+        row = self.dl_table.rowAt(pos.y())
+        if row < 0:
+            return
+        tid_item = self.dl_table.item(row, 7)
+        if not tid_item:
+            return
+        tid = tid_item.text()
+        rec = _dl_records.get(tid, {})
+        dl_url = rec.get("url", "")
+        if not dl_url:
+            return
+        menu = QMenu(self.dl_table)
+        cp_act = menu.addAction("复制下载链接")
+        cp_act.triggered.connect(lambda: QApplication.clipboard().setText(dl_url))
+        menu.exec_(self.dl_table.viewport().mapToGlobal(pos))
     def _restore_dl_records(self):
         global _dl_records
         records = load_dl_records()

@@ -34,24 +34,19 @@
 
 ### 🔗 Parse Share Links
 - Paste Douyin App share text (containing a `v.douyin.com` short link) to extract the direct download URL automatically
-- **Clipboard auto-detection**: the Parse tab reads the clipboard on focus and pre-fills the input if a Douyin link is detected
 - **History** of parsed links is retained across sessions; one-click preview or add to queue
+- Right-click a history record to copy the cover URL, video URL, or original share text
 - Clear list at any time
 
 ### ⬇️ Download Center
 - Unified task manager for all sources: Favorites / Posts / Likes / Discover / Parse
 - **Live stats bar**: total tasks / completed / in-progress counts at a glance
 - **Title search** bar to filter the task list instantly
-- **Colored source badges**: Favorites (blue) / Posts (green) / Likes (pink) / Discover (purple) / Parse (orange)
 - Columns: title, author, progress, file size, source, date added
 - Global controls: Start All / Pause All / Clear / Delete Selected
 - Per-task controls: Download / Pause / Resume / Cancel with **resume-on-pause** support
-- Double-click a completed row to open the local file directly
+- Right-click a task row to copy the download URL
 - Custom download directory; click "Open" to reveal the folder in your file manager
-
-### 🔔 Notifications
-- **Toast messages**: non-blocking floating tips (bottom-right, fade animation) for operation feedback
-- **macOS system notification** on download completion (can be toggled in Settings)
 
 ### 🛡️ Reliability
 - **CAPTCHA detection**: automatically detects slider verification during sync and pauses with a prompt — enable "Show browser window" in Settings and solve it manually to continue
@@ -67,7 +62,6 @@
 - **Themes**: Dark (default) / Midnight Blue / Minimal Green / Warm Sand — live preview on selection
 - Maximum concurrent downloads (1–10, recommended: 3)
 - Sync limits for My Posts and My Likes
-- Toggle download-complete system notifications
 - **Show browser window during sync** — reveal the Chrome window while scraping (useful for solving CAPTCHAs manually; hidden by default for speed)
 
 ---
@@ -193,13 +187,11 @@ requests multi-threaded download  (watermark parameter stripped automatically)
 ## 📜 Changelog
 
 ### v1.1.0
-- **Parse tab**: auto-detects Douyin links in clipboard on tab focus and pre-fills the input automatically
-- **Download Center**: live stats bar (total / completed / in-progress); colored source badges — Favorites (blue) / Posts (green) / Likes (pink) / Discover (purple) / Parse (orange); double-click a completed row to open the local file directly
-- **Notifications**: global toast messages (bottom-right, fade animation) for non-blocking operation feedback; macOS system notification on download completion (toggleable in Settings)
 - **Reliability**: automatic CAPTCHA detection pauses sync and prompts for manual solving; Cookie expiry detection triggers immediate re-login prompt mid-sync
-- **Discover**: user info card avatar rendered as a circle crop
 - **Favorites**: deleted folders are visually marked (greyed name + red "Deleted" badge) rather than silently disappearing
-- **Settings**: "Show browser window during sync" toggle (hidden by default for speed; reveal to solve CAPTCHAs manually); download-complete notification toggle
+- **Download Center**: live stats bar (total / completed / in-progress count at a glance)
+- **Context menus**: video cards now offer "Copy cover URL" and "Copy video URL"; parse history records offer "Copy cover URL", "Copy video URL", and "Copy original share text"; download center rows offer "Copy download URL"
+- **Settings**: "Show browser window during sync" toggle (hidden by default for speed; enable to solve CAPTCHAs manually)
 
 ### v1.0.0
 - DrissionPage engine — intercepts Chrome network requests to obtain real, watermark-free download URLs
